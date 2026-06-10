@@ -15,12 +15,14 @@ from PySide6.QtWidgets import (
     QPushButton,
     QSplitter,
     QStatusBar,
+    QTabWidget,
     QTextEdit,
     QVBoxLayout,
     QWidget,
 )
 
 from guinsoo_mujoco.app.model import SimStudioModel
+from guinsoo_mujoco.app.runs_panel import RunsPanel
 from guinsoo_mujoco.app.session import AssetNotReadyError, SimSession
 from guinsoo_mujoco.app.viewer import MujocoGLWidget
 from guinsoo_mujoco.data import RunRecorder, default_runs_dir
@@ -93,13 +95,14 @@ class MainWindow(QMainWindow):
         return panel
 
     def _build_control_panel(self) -> QWidget:
-        panel = QWidget()
-        layout = QVBoxLayout(panel)
+        tabs = QTabWidget()
+        run_tab = QWidget()
+        run_layout = QVBoxLayout(run_tab)
         form = QFormLayout()
         self.demo_combo = QComboBox()
         self.demo_combo.currentTextChanged.connect(self._select_demo)
         form.addRow("Demo", self.demo_combo)
-        layout.addLayout(form)
+        run_layout.addLayout(form)
         self.run_button = QPushButton("运行")
         self.run_button.clicked.connect(self._toggle_run)
         self.record_button = QPushButton("开始记录")
@@ -108,11 +111,11 @@ class MainWindow(QMainWindow):
         self.reset_button.clicked.connect(self._reset)
         self.reset_camera_button = QPushButton("重置视角")
         self.reset_camera_button.clicked.connect(self.viewer.reset_camera)
-        layout.addWidget(self.run_button)
-        layout.addWidget(self.record_button)
-        layout.addWidget(self.reset_button)
-        layout.addWidget(self.reset_camera_button)
-        layout.addWidget(QLabel("运行状态"))
+        run_layout.addWidget(self.run_button)
+        run_layout.addWidget(self.record_button)
+        run_layout.addWidget(self.reset_button)
+        run_layout.addWidget(self.reset_camera_button)
+        run_layout.addWidget(QLabel("运行状态"))
         self.log = QTextEdit()
         self.log.setReadOnly(True)
         self.log.setText(
@@ -120,9 +123,12 @@ class MainWindow(QMainWindow):
             "若资产未下载，请运行：python -m guinsoo_mujoco.cli fetch-assets ur5e\n\n"
             f"Episode 默认保存目录：{default_runs_dir()}"
         )
-        layout.addWidget(self.log)
-        layout.addStretch()
-        return panel
+        run_layout.addWidget(self.log)
+        tabs.addTab(run_tab, "运行控制")
+
+        self.runs_panel = RunsPanel()
+        tabs.addTab(self.runs_panel, "数据包")
+        return tabs
 
     def _init_robot_selection(self) -> None:
         self._select_robot(self.robot_list.currentItem())
@@ -201,6 +207,7 @@ class MainWindow(QMainWindow):
                 f"\n已保存 episode：\nHDF5: {artifact.hdf5_path}\n元数据: {artifact.metadata_path}{csv_hint}"
             )
             self.statusBar().showMessage(f"已保存 episode 到 {artifact.hdf5_path.parent}")
+            self.runs_panel.refresh()
             return
         if self.session is None:
             self._load_session()
