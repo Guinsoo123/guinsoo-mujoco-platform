@@ -5,7 +5,7 @@ from pathlib import Path
 import sys
 
 from guinsoo_mujoco.asset_downloader import AssetDownloader
-from guinsoo_mujoco.assets import AssetManifest
+from guinsoo_mujoco.assets import AssetManifest, repo_root
 from guinsoo_mujoco.robots import create_default_robot_registry
 
 
@@ -20,7 +20,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "fetch-assets":
         registry = create_default_robot_registry()
         robot = registry.get(args.robot_id)
-        root = Path(__file__).resolve().parents[2]
+        root = repo_root()
         manifest = AssetManifest.load(root / robot.asset_manifest)
         if manifest.license == "UNKNOWN":
             print(

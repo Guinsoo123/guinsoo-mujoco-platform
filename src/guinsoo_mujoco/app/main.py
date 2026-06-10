@@ -2,12 +2,12 @@ from __future__ import annotations
 
 import sys
 
+import pyqtgraph as pg
 from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import (
     QApplication,
     QComboBox,
     QFormLayout,
-    QHBoxLayout,
     QLabel,
     QListWidget,
     QListWidgetItem,
@@ -19,9 +19,9 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-import pyqtgraph as pg
 
 from guinsoo_mujoco.app.model import SimStudioModel
+from guinsoo_mujoco.app.session import AssetNotReadyError, SimSession
 from guinsoo_mujoco.app.viewer import MujocoGLWidget
 
 
@@ -31,12 +31,14 @@ class MainWindow(QMainWindow):
         self.model = SimStudioModel()
         self.current_robot_id = "ur5e"
         self.current_demo = "joint_position"
-        self.elapsed = 0.0
+        self.session: SimSession | None = None
+        self._sim_dt = 0.002
+        self._steps_per_tick = 16
         self.setWindowTitle("Guinsoo Sim Studio")
         self.resize(1280, 820)
-        self._build_ui()
         self._timer = QTimer(self)
         self._timer.timeout.connect(self._tick)
+        self._build_ui()
 
     def _build_ui(self) -> None:
         splitter = QSplitter()
@@ -50,7 +52,10 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(splitter)
         self.setStatusBar(QStatusBar())
         self.statusBar().showMessage("选择机器人和 demo 后点击运行。")
+        self.robot_list.blockSignals(True)
         self.robot_list.setCurrentRow(0)
+        self.robot_list.blockSignals(False)
+        QTimer.singleShot(0, self._init_robot_selection)
 
     def _build_robot_panel(self) -> QWidget:
         panel = QWidget()
@@ -70,6 +75,9 @@ class MainWindow(QMainWindow):
     def _build_center_panel(self) -> QWidget:
         panel = QWidget()
         layout = QVBoxLayout(panel)
+        layout.addWidget(
+            QLabel("左键旋转 | 右键平移 | 滚轮缩放 | Ctrl+左键拖动物体")
+        )
         self.viewer = MujocoGLWidget()
         layout.addWidget(self.viewer, stretch=4)
         self.plot = pg.PlotWidget(title="实时控制曲线")
@@ -94,23 +102,33 @@ class MainWindow(QMainWindow):
         self.record_button = QPushButton("记录 episode")
         self.reset_button = QPushButton("重置")
         self.reset_button.clicked.connect(self._reset)
+        self.reset_camera_button = QPushButton("重置视角")
+        self.reset_camera_button.clicked.connect(self.viewer.reset_camera)
         layout.addWidget(self.run_button)
         layout.addWidget(self.record_button)
         layout.addWidget(self.reset_button)
+        layout.addWidget(self.reset_camera_button)
         layout.addWidget(QLabel("运行状态"))
         self.log = QTextEdit()
         self.log.setReadOnly(True)
         self.log.setText(
-            "第一版界面骨架已接入机器人注册表、Demo 选择、OpenGL 视图和实时曲线。\n"
-            "UR5e 完整仿真会在资产下载和 MuJoCoRuntime 接入后运行。"
+            "选择机器人后会尝试加载本地缓存的 MuJoCo 场景。\n"
+            "若资产未下载，请运行：python -m guinsoo_mujoco.cli fetch-assets ur5e"
         )
         layout.addWidget(self.log)
         layout.addStretch()
         return panel
 
+    def _init_robot_selection(self) -> None:
+        self._select_robot(self.robot_list.currentItem())
+
     def _select_robot(self, current: QListWidgetItem | None) -> None:
         if current is None:
             return
+        was_running = self._timer.isActive()
+        if was_running:
+            self._timer.stop()
+            self.run_button.setText("运行")
         self.current_robot_id = current.data(256)
         robot = self.model.registry.get(self.current_robot_id)
         self.demo_combo.blockSignals(True)
@@ -118,39 +136,97 @@ class MainWindow(QMainWindow):
         self.demo_combo.addItems(robot.demos)
         self.demo_combo.blockSignals(False)
         self.current_demo = robot.demos[0]
-        self.viewer.set_status(f"{robot.display_name}\n{robot.description}")
+        self._load_session()
+        if was_running and self.session is not None:
+            self._timer.start(33)
+            self.run_button.setText("暂停")
         self.statusBar().showMessage(f"已选择 {robot.display_name}")
 
     def _select_demo(self, demo: str) -> None:
-        if demo:
-            self.current_demo = demo
+        if not demo or demo == self.current_demo:
+            return
+        was_running = self._timer.isActive()
+        if was_running:
+            self._timer.stop()
+            self.run_button.setText("运行")
+        self.current_demo = demo
+        self._load_session()
+        if was_running and self.session is not None:
+            self._timer.start(33)
+            self.run_button.setText("暂停")
+
+    def _load_session(self) -> None:
+        self.session = None
+        robot = self.model.registry.get(self.current_robot_id)
+        try:
+            self.session = SimSession.load(
+                self.current_robot_id,
+                self.current_demo,
+            )
+        except AssetNotReadyError as exc:
+            self.viewer.set_status(
+                f"{robot.display_name}\n资产未就绪\n\n{SimSession.fetch_hint(robot.robot_id)}"
+            )
+            self.log.setText(str(exc))
+            return
+        except Exception as exc:
+            self.viewer.set_status(f"{robot.display_name}\n加载失败：{exc}")
+            self.log.setText(f"加载失败：{exc}")
+            return
+
+        self.viewer.set_runtime(self.session.runtime)
+        self.viewer.refresh()
+        self.log.setText(
+            f"已加载 {robot.display_name}\n"
+            f"Demo: {self.current_demo}\n"
+            f"场景: {self.session.runtime.model_path}"
+        )
 
     def _toggle_run(self) -> None:
         if self._timer.isActive():
             self._timer.stop()
             self.run_button.setText("运行")
+            self.viewer.set_simulation_running(False)
             self.statusBar().showMessage("仿真已暂停。")
             return
+        if self.session is None:
+            self._load_session()
+        if self.session is None:
+            self.statusBar().showMessage("无法运行：场景未加载。")
+            return
         selection = self.model.select(self.current_robot_id, self.current_demo)
-        self.viewer.set_status(
-            f"运行中：{selection.robot.display_name}\nDemo: {selection.demo}"
-        )
         self._timer.start(33)
         self.run_button.setText("暂停")
-        self.statusBar().showMessage("仿真循环运行中。")
+        self.viewer.set_simulation_running(True)
+        self.statusBar().showMessage(
+            f"仿真运行中：{selection.robot.display_name} / {selection.demo}"
+        )
 
     def _reset(self) -> None:
-        self.elapsed = 0.0
         self._plot_t.clear()
         self._plot_y.clear()
         self.curve.setData([], [])
-        self.viewer.set_status("已重置，等待运行。")
+        if self.session is not None:
+            self.session.reset()
+            self.viewer.refresh()
+        self.statusBar().showMessage("仿真已重置。")
 
     def _tick(self) -> None:
-        self.elapsed += 0.033
-        self._plot_t.append(self.elapsed)
-        self._plot_y.append((self.elapsed % 1.0) - 0.5)
+        if self.session is None:
+            return
+        self.viewer.apply_perturbation(self.session.runtime, sim_running=True)
+        sample: dict | None = None
+        for _ in range(self._steps_per_tick):
+            sample = self.session.step(self._sim_dt)
+        if sample is None:
+            return
+        t = float(sample["time"])
+        control = sample["control"]
+        metric = float(control[0]) if control.size else 0.0
+        self._plot_t.append(t)
+        self._plot_y.append(metric)
         self.curve.setData(self._plot_t[-300:], self._plot_y[-300:])
+        self.viewer.refresh()
 
 
 def main() -> int:

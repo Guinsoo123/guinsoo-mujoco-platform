@@ -48,3 +48,31 @@ class AssetManifest:
 
 def default_cache_root() -> Path:
     return Path.home() / ".guinsoo_mujoco" / "assets"
+
+
+def repo_root() -> Path:
+    return Path(__file__).resolve().parents[2]
+
+
+def resolve_asset_dir(
+    manifest: AssetManifest, cache_root: str | Path | None = None
+) -> Path:
+    root = Path(cache_root) if cache_root else default_cache_root()
+    return root / manifest.cache_subdir
+
+
+def resolve_scene_path(
+    manifest: AssetManifest,
+    cache_root: str | Path | None = None,
+    entrypoint: str | None = None,
+) -> Path:
+    return resolve_asset_dir(manifest, cache_root) / (entrypoint or manifest.entrypoint)
+
+
+def missing_required_assets(
+    manifest: AssetManifest, cache_root: str | Path | None = None
+) -> tuple[str, ...]:
+    base = resolve_asset_dir(manifest, cache_root)
+    return tuple(
+        name for name in manifest.required_files if not (base / name).exists()
+    )

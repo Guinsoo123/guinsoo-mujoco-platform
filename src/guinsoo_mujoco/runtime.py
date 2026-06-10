@@ -28,6 +28,11 @@ class MuJoCoRuntime:
         self.model = mujoco.MjModel.from_xml_path(str(self.model_path))
         self.data = mujoco.MjData(self.model)
 
+    def ensure_offscreen_size(self, width: int, height: int) -> None:
+        """Grow MuJoCo's offscreen framebuffer to fit the requested viewport."""
+        self.model.vis.global_.offwidth = max(self.model.vis.global_.offwidth, width)
+        self.model.vis.global_.offheight = max(self.model.vis.global_.offheight, height)
+
     def reset(self) -> None:
         self.mujoco.mj_resetData(self.model, self.data)
 
