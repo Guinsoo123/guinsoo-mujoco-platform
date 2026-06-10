@@ -27,11 +27,11 @@ from guinsoo_mujoco.operators.collision import is_configuration_colliding
 from guinsoo_mujoco.operators.ik import solve_ik_multi_seed
 from guinsoo_mujoco.operators.path import (
     JointPathTracker,
+    actuator_joint_target,
     densify_path,
     shortest_joint_delta,
     shortcut_path,
     snap_path_start,
-    unwrap_joint_target,
     unwrap_path,
 )
 from guinsoo_mujoco.operators.rrt import RRTConnectPlanner
@@ -143,18 +143,15 @@ class EEPoseAvoidController:
         return not is_configuration_colliding(runtime, q_goal, COLLISION_MODEL)
 
     def _control_target(self, runtime: MuJoCoRuntime, q_ref: np.ndarray) -> np.ndarray:
-        """Map a joint reference into the same angle branch as current qpos.
-
-        MuJoCo position actuators use linear (ctrl - q) error, so ctrl must stay
-        numerically close to qpos even when angles differ by 2*pi.
-        """
+        """Map q_ref into the ctrl branch that minimizes |ctrl - qpos| per joint."""
         qpos, _ = runtime.read_joint_state()
-        target = unwrap_joint_target(qpos[:6], np.asarray(q_ref, dtype=float)[:6])
         low, high = runtime.joint_limits()
-        for index in range(min(target.size, low.size, high.size)):
-            if high[index] - low[index] < 2.0 * np.pi - 1e-6:
-                target[index] = float(np.clip(target[index], low[index], high[index]))
-        return target
+        return actuator_joint_target(
+            qpos[:6],
+            np.asarray(q_ref, dtype=float)[:6],
+            low[:6],
+            high[:6],
+        )
 
     def _joint_distance(self, q_from: np.ndarray, q_to: np.ndarray) -> float:
         return float(np.linalg.norm(shortest_joint_delta(q_from, q_to)))
@@ -216,7 +213,13 @@ class EEPoseAvoidController:
             qpos, _ = runtime.read_joint_state()
             return self._enter_hold(runtime, qpos.copy())
 
-        self.tracker.set_path(dense_path)
+        qpos, _ = runtime.read_joint_state()
+        low, high = runtime.joint_limits()
+        self.tracker.set_path(
+            dense_path,
+            q_anchor=qpos[:6],
+            joint_limits=(low[:6], high[:6]),
+        )
         self.last_plan_success = True
         self.phase = Phase.TRACK
         self.status_message = f"跟踪中：{waypoint.name}"

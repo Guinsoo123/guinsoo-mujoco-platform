@@ -1,5 +1,7 @@
 from guinsoo_mujoco.operators.path.densify import densify_path, snap_path_start
 from guinsoo_mujoco.operators.path.joint_unwrap import (
+    actuator_joint_target,
+    anchor_path_for_actuator,
     canonicalize_joint_q,
     interpolate_joints,
     shortest_joint_delta,
@@ -11,6 +13,8 @@ from guinsoo_mujoco.operators.path.tracker import JointPathTracker
 
 __all__ = [
     "JointPathTracker",
+    "actuator_joint_target",
+    "anchor_path_for_actuator",
     "canonicalize_joint_q",
     "densify_path",
     "interpolate_joints",

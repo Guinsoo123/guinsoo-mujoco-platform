@@ -67,6 +67,17 @@ def test_control_target_stays_near_current_qpos_branch():
     assert np.linalg.norm(target - runtime.qpos) < 0.2
 
 
+def test_control_target_fixes_wrist_branch_near_two_pi():
+    runtime = FakeRuntime()
+    runtime.qpos = np.array([3.895, 5.353, 0.592, 6.283, -1.554, -2.852])
+    controller = EEPoseAvoidController(runtime)
+    place_ref = np.array([3.895, 5.335, 0.585, 1.274, -1.554, -2.852])
+
+    target = controller._control_target(runtime, place_ref)
+
+    assert target[3] == pytest.approx(1.274, abs=1e-3)
+
+
 @pytest.mark.skipif(
     not pytest.importorskip("mujoco", reason="MuJoCo not installed"),
     reason="MuJoCo not installed",
