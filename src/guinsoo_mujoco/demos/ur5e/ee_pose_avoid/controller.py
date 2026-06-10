@@ -1,36 +1,44 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from enum import Enum
 
 import numpy as np
 
-from guinsoo_mujoco.demos.ur5e.ee_pose_avoid.collision import is_configuration_colliding
 from guinsoo_mujoco.demos.ur5e.ee_pose_avoid.config import (
-    Waypoint,
-    COLLISION_MARGIN,
+    COLLISION_MODEL,
+    EDGE_COLLISION_SAMPLES,
     HOLD_DURATION,
     HOME_QPOS,
+    IK_OPTIONS,
     JOINT_ARRIVAL_TOL,
-    OBSTACLE_GEOMS,
     PATH_DENSIFY_STEP,
+    RRT_GOAL_BIAS,
+    RRT_MAX_ITERATIONS,
+    RRT_STEP_SIZE,
+    TRACK_KD,
+    TRACK_KP,
+    PATH_SPEED,
     WAYPOINTS,
+    Waypoint,
 )
-from guinsoo_mujoco.demos.ur5e.ee_pose_avoid.ik import solve_ik_multi_seed
-from guinsoo_mujoco.demos.ur5e.ee_pose_avoid.path_tracker import JointPathTracker
-from guinsoo_mujoco.demos.ur5e.ee_pose_avoid.path_utils import densify_path, snap_path_start
-from guinsoo_mujoco.demos.ur5e.ee_pose_avoid.rrt import RRTConnectPlanner
+from guinsoo_mujoco.demos.ur5e.ee_pose_avoid.workflow import Phase
 from guinsoo_mujoco.logging_config import get_logger
+from guinsoo_mujoco.operators.collision import is_configuration_colliding
+from guinsoo_mujoco.operators.ik import solve_ik_multi_seed
+from guinsoo_mujoco.operators.path import (
+    JointPathTracker,
+    densify_path,
+    shortest_joint_delta,
+    shortcut_path,
+    snap_path_start,
+    unwrap_joint_target,
+    unwrap_path,
+)
+from guinsoo_mujoco.operators.rrt import RRTConnectPlanner
 from guinsoo_mujoco.runtime import MuJoCoRuntime
 
 controller_logger = get_logger("controller")
 planner_logger = get_logger("planner")
-
-
-class Phase(str, Enum):
-    PLAN = "plan"
-    TRACK = "track"
-    HOLD = "hold"
 
 
 def _quat_wxyz_to_matrix(quat: tuple[float, float, float, float]) -> np.ndarray:
@@ -53,16 +61,33 @@ class EEPoseAvoidController:
     phase: Phase = Phase.PLAN
     hold_elapsed: float = 0.0
     hold_target: np.ndarray | None = None
-    tracker: JointPathTracker = field(default_factory=JointPathTracker)
+    tracker: JointPathTracker = field(
+        default_factory=lambda: JointPathTracker(
+            kp=TRACK_KP, kd=TRACK_KD, speed=PATH_SPEED, arrival_tol=JOINT_ARRIVAL_TOL
+        )
+    )
     planner: RRTConnectPlanner | None = None
     status_message: str = "初始化"
     last_plan_success: bool = False
 
     def reset(self, runtime: MuJoCoRuntime | None = None, config: dict | None = None) -> None:
+        del config
         if runtime is not None:
             self.runtime = runtime
-        self.planner = RRTConnectPlanner(self.runtime)
-        self.tracker = JointPathTracker()
+        self.planner = RRTConnectPlanner(
+            self.runtime,
+            COLLISION_MODEL,
+            step_size=RRT_STEP_SIZE,
+            goal_bias=RRT_GOAL_BIAS,
+            max_iterations=RRT_MAX_ITERATIONS,
+            edge_collision_samples=EDGE_COLLISION_SAMPLES,
+        )
+        self.tracker = JointPathTracker(
+            kp=TRACK_KP,
+            kd=TRACK_KD,
+            speed=PATH_SPEED,
+            arrival_tol=JOINT_ARRIVAL_TOL,
+        )
         self.waypoint_index = 0
         self.phase = Phase.PLAN
         self.hold_elapsed = 0.0
@@ -111,17 +136,31 @@ class EEPoseAvoidController:
             target_pos,
             target_rot,
             (q_start, HOME_QPOS, q_start + np.array([0.1, -0.1, 0.1, 0.0, 0.0, 0.0])),
+            IK_OPTIONS,
         )
 
     def _is_goal_free(self, runtime: MuJoCoRuntime, q_goal: np.ndarray) -> bool:
-        return not is_configuration_colliding(
-            runtime,
-            q_goal,
-            OBSTACLE_GEOMS,
-            margin=COLLISION_MARGIN,
-        )
+        return not is_configuration_colliding(runtime, q_goal, COLLISION_MODEL)
+
+    def _control_target(self, runtime: MuJoCoRuntime, q_ref: np.ndarray) -> np.ndarray:
+        """Map a joint reference into the same angle branch as current qpos.
+
+        MuJoCo position actuators use linear (ctrl - q) error, so ctrl must stay
+        numerically close to qpos even when angles differ by 2*pi.
+        """
+        qpos, _ = runtime.read_joint_state()
+        target = unwrap_joint_target(qpos[:6], np.asarray(q_ref, dtype=float)[:6])
+        low, high = runtime.joint_limits()
+        for index in range(min(target.size, low.size, high.size)):
+            if high[index] - low[index] < 2.0 * np.pi - 1e-6:
+                target[index] = float(np.clip(target[index], low[index], high[index]))
+        return target
+
+    def _joint_distance(self, q_from: np.ndarray, q_to: np.ndarray) -> float:
+        return float(np.linalg.norm(shortest_joint_delta(q_from, q_to)))
 
     def _enter_hold(self, runtime: MuJoCoRuntime, hold: np.ndarray) -> dict:
+        hold = self._control_target(runtime, hold)
         runtime.set_control(hold)
         self.hold_target = hold.copy()
         self.phase = Phase.HOLD
@@ -140,7 +179,7 @@ class EEPoseAvoidController:
             qpos, _ = runtime.read_joint_state()
             return self._enter_hold(runtime, qpos.copy())
 
-        if float(np.linalg.norm(q_goal - q_start)) <= JOINT_ARRIVAL_TOL:
+        if self._joint_distance(q_start, q_goal) <= JOINT_ARRIVAL_TOL:
             self.last_plan_success = True
             self.status_message = f"已在路点：{waypoint.name}"
             controller_logger.info("已在路点，跳过规划：%s", waypoint.name)
@@ -156,9 +195,18 @@ class EEPoseAvoidController:
             return self._enter_hold(runtime, qpos.copy())
 
         path = snap_path_start(path, q_start)
+        raw_nodes = len(path)
+        path = shortcut_path(
+            runtime,
+            path,
+            COLLISION_MODEL,
+            edge_collision_samples=EDGE_COLLISION_SAMPLES,
+        )
+        path = unwrap_path(path, q_start)
         dense_path = densify_path(
             runtime,
             path,
+            COLLISION_MODEL,
             max_joint_step=PATH_DENSIFY_STEP,
         )
         if dense_path is None:
@@ -173,8 +221,9 @@ class EEPoseAvoidController:
         self.phase = Phase.TRACK
         self.status_message = f"跟踪中：{waypoint.name}"
         planner_logger.info(
-            "规划完成：waypoint=%s rrt_nodes=%d dense_nodes=%d",
+            "规划完成：waypoint=%s rrt_nodes=%d shortcut_nodes=%d dense_nodes=%d",
             waypoint.name,
+            raw_nodes,
             len(path),
             len(dense_path),
         )
@@ -184,13 +233,17 @@ class EEPoseAvoidController:
     def _step_track(self, runtime: MuJoCoRuntime, dt: float) -> dict:
         qpos, _ = runtime.read_joint_state()
         self.tracker.advance(dt)
-        target = self.tracker.target_at_progress()
+        target = self._control_target(
+            runtime, self.tracker.target_at_progress()
+        )
         runtime.set_control(target)
         sample = self._sample(runtime, target)
         if self.tracker.is_complete(qpos):
             self.phase = Phase.HOLD
             self.hold_elapsed = 0.0
-            self.hold_target = self.tracker.path[-1].copy()
+            self.hold_target = self._control_target(
+                runtime, self.tracker.path[-1]
+            )
             waypoint = WAYPOINTS[self.waypoint_index]
             self.status_message = f"到达：{waypoint.name}"
             controller_logger.info("到达路点：%s", waypoint.name)

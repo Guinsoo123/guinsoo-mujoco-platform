@@ -144,7 +144,11 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.plot, stretch=1)
 
         log_file = current_log_file()
-        log_hint = str(log_file) if log_file is not None else "~/.guinsoo_mujoco/logs/"
+        log_hint = (
+            str(log_file.parent)
+            if log_file is not None
+            else "~/.guinsoo_mujoco/logs/<timestamp>/"
+        )
         layout.addWidget(QLabel(f"运行日志（文件：{log_hint}）"))
         self.log_view = QTextEdit()
         self.log_view.setReadOnly(True)

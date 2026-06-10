@@ -4,11 +4,10 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
-from guinsoo_mujoco.demos.ur5e.ee_pose_avoid.config import (
-    JOINT_ARRIVAL_TOL,
-    PATH_SPEED,
-    TRACK_KD,
-    TRACK_KP,
+from guinsoo_mujoco.operators.path.joint_unwrap import (
+    interpolate_joints,
+    shortest_joint_delta,
+    unwrap_joint_target,
 )
 
 
@@ -18,10 +17,10 @@ class JointPathTracker:
     segment_lengths: list[float] = field(default_factory=list)
     total_length: float = 0.0
     progress: float = 0.0
-    kp: float = TRACK_KP
-    kd: float = TRACK_KD
-    speed: float = PATH_SPEED
-    arrival_tol: float = JOINT_ARRIVAL_TOL
+    kp: float = 20.0
+    kd: float = 2.0
+    speed: float = 1.5
+    arrival_tol: float = 0.05
 
     def set_path(self, path: list[np.ndarray]) -> None:
         if len(path) < 2:
@@ -30,11 +29,15 @@ class JointPathTracker:
             self.total_length = 0.0
             self.progress = 0.0
             return
-        self.path = [np.asarray(node, dtype=float).copy() for node in path]
+        raw = [np.asarray(node, dtype=float).copy() for node in path]
+        self.path = [raw[0].copy()]
+        for index in range(1, len(raw)):
+            self.path.append(unwrap_joint_target(self.path[-1], raw[index]))
         self.segment_lengths = []
         self.total_length = 0.0
         for index in range(len(self.path) - 1):
-            length = float(np.linalg.norm(self.path[index + 1] - self.path[index]))
+            delta = self.path[index + 1] - self.path[index]
+            length = float(np.linalg.norm(delta))
             self.segment_lengths.append(length)
             self.total_length += length
         self.progress = 0.0
@@ -53,7 +56,7 @@ class JointPathTracker:
         for index, length in enumerate(self.segment_lengths):
             if remaining <= length:
                 alpha = remaining / length if length > 0 else 1.0
-                return (1.0 - alpha) * self.path[index] + alpha * self.path[index + 1]
+                return interpolate_joints(self.path[index], self.path[index + 1], alpha)
             remaining -= length
         return self.path[-1].copy()
 
@@ -61,11 +64,13 @@ class JointPathTracker:
         if not self.path:
             return True
         target = self.path[-1]
-        if float(np.linalg.norm(qpos - target)) <= self.arrival_tol:
+        distance = float(np.linalg.norm(shortest_joint_delta(qpos, target)))
+        if distance <= self.arrival_tol:
             return True
-        return self.progress >= self.total_length - 1e-6 and float(
-            np.linalg.norm(qpos - target)
-        ) <= self.arrival_tol * 2.0
+        return (
+            self.progress >= self.total_length - 1e-6
+            and distance <= self.arrival_tol * 2.0
+        )
 
     def control(self, qpos: np.ndarray, qvel: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         target = self.target_at_progress()

@@ -1,8 +1,9 @@
 import numpy as np
 import pytest
 
-from guinsoo_mujoco.demos.ur5e.ee_pose_avoid.controller import EEPoseAvoidController, Phase
-from guinsoo_mujoco.demos.ur5e.ee_pose_avoid.path_tracker import JointPathTracker
+from guinsoo_mujoco.demos.ur5e.ee_pose_avoid.config import HOME_QPOS
+from guinsoo_mujoco.demos.ur5e.ee_pose_avoid.controller import EEPoseAvoidController
+from guinsoo_mujoco.demos.ur5e.ee_pose_avoid.workflow import Phase
 
 
 class FakeRuntime:
@@ -18,19 +19,10 @@ class FakeRuntime:
     def set_control(self, control):
         self.ctrl = np.asarray(control, dtype=float)
 
-
-def test_joint_path_tracker_interpolates_and_completes():
-    tracker = JointPathTracker(speed=1.0, arrival_tol=0.05)
-    path = [np.zeros(3), np.ones(3)]
-    tracker.set_path(path)
-
-    tracker.advance(0.5)
-    target, _ = tracker.control(np.zeros(3), np.zeros(3))
-    expected = 0.5 / np.sqrt(3.0)
-    assert target[0] == pytest.approx(expected)
-
-    tracker.advance(2.0)
-    assert tracker.is_complete(np.ones(3) * 0.98)
+    def joint_limits(self):
+        return np.full(self.qpos.size, -2.0 * np.pi), np.full(
+            self.qpos.size, 2.0 * np.pi
+        )
 
 
 def test_hold_phase_transitions_to_plan_without_none_target(monkeypatch):
@@ -63,6 +55,45 @@ def test_controller_transitions_from_track_to_hold(monkeypatch):
 
     assert controller.phase == Phase.HOLD
     assert runtime.ctrl is not None
+
+
+def test_control_target_stays_near_current_qpos_branch():
+    runtime = FakeRuntime()
+    runtime.qpos = np.array(HOME_QPOS, dtype=float)
+    controller = EEPoseAvoidController(runtime)
+
+    target = controller._control_target(runtime, HOME_QPOS)
+
+    assert np.linalg.norm(target - runtime.qpos) < 0.2
+
+
+@pytest.mark.skipif(
+    not pytest.importorskip("mujoco", reason="MuJoCo not installed"),
+    reason="MuJoCo not installed",
+)
+def test_hold_at_home_does_not_jump_ctrl():
+    mujoco = pytest.importorskip("mujoco")
+    del mujoco
+    from pathlib import Path
+
+    from guinsoo_mujoco.runtime import MuJoCoRuntime
+
+    scene = (
+        Path.home()
+        / ".guinsoo_mujoco/assets/mujoco_menagerie/universal_robots_ur5e/guinsoo_ee_pose_avoid_scene.xml"
+    )
+    if not scene.exists():
+        pytest.skip("UR5e scene assets not cached")
+    runtime = MuJoCoRuntime(scene)
+    controller = EEPoseAvoidController(runtime)
+    controller.reset(runtime)
+    controller.phase = Phase.PLAN
+    controller.waypoint_index = 0
+    controller._step_plan(runtime, 0.0)
+
+    qpos = runtime.data.qpos[:6].copy()
+    ctrl = runtime.data.ctrl[:6].copy()
+    assert np.linalg.norm(ctrl - qpos) < 0.2
 
 
 def test_controller_plan_phase_uses_rrt_path(monkeypatch):

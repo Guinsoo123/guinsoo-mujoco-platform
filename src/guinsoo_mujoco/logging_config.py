@@ -18,6 +18,12 @@ def current_log_file() -> Path | None:
     return _LOG_FILE_PATH
 
 
+def current_log_run_dir() -> Path | None:
+    if _LOG_FILE_PATH is None:
+        return None
+    return _LOG_FILE_PATH.parent
+
+
 def resolve_log_level() -> int:
     level_name = os.environ.get("GUINSOO_LOG_LEVEL", "INFO").upper()
     return getattr(logging, level_name, logging.INFO)
@@ -67,9 +73,10 @@ def setup_logging(
     )
 
     directory = Path(log_dir) if log_dir else default_log_dir()
-    directory.mkdir(parents=True, exist_ok=True)
     timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-    log_path = directory / f"{app_name}_{timestamp}.log"
+    run_dir = directory / timestamp
+    run_dir.mkdir(parents=True, exist_ok=True)
+    log_path = run_dir / f"{app_name}.log"
     file_handler = logging.FileHandler(log_path, encoding="utf-8")
     file_handler.setLevel(log_level)
     file_handler.setFormatter(formatter)

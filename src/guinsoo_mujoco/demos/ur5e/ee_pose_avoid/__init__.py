@@ -20,7 +20,7 @@ def create_ee_pose_avoid_spec() -> DemoSpec:
         robot_id="ur5e",
         package_dir=_PACKAGE_DIR,
         scene_template="scene.xml",
-        doc_path="README.md",
+        doc_path="DESIGN.md",
         manifest_entrypoint=None,
         create_controller=lambda runtime: EEPoseAvoidController(runtime),
     )

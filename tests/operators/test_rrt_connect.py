@@ -1,6 +1,7 @@
 import numpy as np
 
-from guinsoo_mujoco.demos.ur5e.ee_pose_avoid.rrt import RRTConnectPlanner
+from guinsoo_mujoco.operators.collision import CollisionModel
+from guinsoo_mujoco.operators.rrt import RRTConnectPlanner
 
 
 class FakeCollisionRuntime:
@@ -38,24 +39,29 @@ def _is_free(runtime: FakeCollisionRuntime, q: np.ndarray) -> bool:
 
 def test_rrt_connect_finds_path_around_blocked_region(monkeypatch):
     runtime = FakeCollisionRuntime(dof=2)
+    collision_model = CollisionModel(
+        robot_body_names=frozenset(),
+        ignore_body_names=frozenset(),
+        obstacle_geom_names=(),
+    )
     planner = RRTConnectPlanner(
         runtime,
+        collision_model,
         step_size=0.1,
         goal_bias=0.3,
         max_iterations=2000,
-        obstacle_geom_names=(),
-        collision_margin=0.03,
     )
-    def _colliding(_runtime, q, _obstacles, margin=0.03):
+
+    def _colliding(_runtime, q, _model):
         return not _is_free(runtime, q)
 
     monkeypatch.setattr(
-        "guinsoo_mujoco.demos.ur5e.ee_pose_avoid.rrt.is_configuration_colliding",
+        "guinsoo_mujoco.operators.rrt.connect.is_configuration_colliding",
         _colliding,
     )
     monkeypatch.setattr(
-        "guinsoo_mujoco.demos.ur5e.ee_pose_avoid.rrt.is_edge_colliding",
-        lambda _runtime, q_from, q_to, _obstacles, margin=0.03, samples=8: not (
+        "guinsoo_mujoco.operators.rrt.connect.is_edge_colliding",
+        lambda _runtime, q_from, q_to, _model, samples=8: not (
             _is_free(runtime, q_from) and _is_free(runtime, q_to)
         ),
     )
@@ -74,13 +80,18 @@ def test_rrt_connect_finds_path_around_blocked_region(monkeypatch):
 
 def test_rrt_connect_returns_none_when_start_in_collision(monkeypatch):
     runtime = FakeCollisionRuntime(dof=2)
-    planner = RRTConnectPlanner(runtime, max_iterations=10, obstacle_geom_names=())
+    collision_model = CollisionModel(
+        robot_body_names=frozenset(),
+        ignore_body_names=frozenset(),
+        obstacle_geom_names=(),
+    )
+    planner = RRTConnectPlanner(runtime, collision_model, max_iterations=10)
     monkeypatch.setattr(
-        "guinsoo_mujoco.demos.ur5e.ee_pose_avoid.rrt.is_configuration_colliding",
-        lambda _runtime, q, _obstacles, margin=0.03: not _is_free(runtime, q),
+        "guinsoo_mujoco.operators.rrt.connect.is_configuration_colliding",
+        lambda _runtime, q, _model: not _is_free(runtime, q),
     )
     monkeypatch.setattr(
-        "guinsoo_mujoco.demos.ur5e.ee_pose_avoid.rrt.is_edge_colliding",
+        "guinsoo_mujoco.operators.rrt.connect.is_edge_colliding",
         lambda *_args, **_kwargs: True,
     )
 

@@ -39,7 +39,13 @@ conda run -n robot_dev python -m pytest tests
 
 1. 左侧选择机器人（如 UR5e）。
 2. 在 **Demo 场景** 列表切换不同示例；每个 Demo 可加载独立 MJCF 场景与控制器。
-3. UR5e **末端避障到点 (RRT)** 原理说明见 `src/guinsoo_mujoco/demos/ur5e/ee_pose_avoid/README.md`。
+3. 每个 Demo 的算法设计文档见 `src/guinsoo_mujoco/demos/{robot}/{demo_id}/DESIGN.md`（支持 LaTeX 公式渲染）。例如 UR5e 末端避障到点：`demos/ur5e/ee_pose_avoid/DESIGN.md`。
+
+## 代码结构
+
+- **核心算子** `src/guinsoo_mujoco/operators/`：可复用算法（碰撞、IK、RRT、路径跟踪、关节 PD）
+- **Demo 包** `src/guinsoo_mujoco/demos/{robot}/{demo_id}/`：场景参数、流程编排、`DESIGN.md`
+- **测试** `tests/operators/` 测算子，`tests/demos/` 测 Demo 流程
 
 ## 启动桌面工具
 

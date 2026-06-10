@@ -4,29 +4,10 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
+from guinsoo_mujoco.operators.collision.models import CollisionModel
+
 if TYPE_CHECKING:
     from guinsoo_mujoco.runtime import MuJoCoRuntime
-
-ROBOT_BODY_NAMES: frozenset[str] = frozenset(
-    {
-        "base",
-        "shoulder_link",
-        "upper_arm_link",
-        "forearm_link",
-        "wrist_1_link",
-        "wrist_2_link",
-        "wrist_3_link",
-    }
-)
-
-IGNORE_BODY_NAMES: frozenset[str] = frozenset({"world", "target_home", "target_approach", "target_over", "target_place"})
-
-
-def _geom_name(runtime: MuJoCoRuntime, geom_id: int) -> str:
-    name = runtime.mujoco.mj_id2name(
-        runtime.model, runtime.mujoco.mjtObj.mjOBJ_GEOM, int(geom_id)
-    )
-    return name or f"geom_{geom_id}"
 
 
 def _body_name(runtime: MuJoCoRuntime, body_id: int) -> str:
@@ -36,23 +17,26 @@ def _body_name(runtime: MuJoCoRuntime, body_id: int) -> str:
     return name or f"body_{body_id}"
 
 
-def robot_collision_geom_ids(runtime: MuJoCoRuntime) -> tuple[int, ...]:
+def robot_collision_geom_ids(
+    runtime: MuJoCoRuntime,
+    model: CollisionModel,
+) -> tuple[int, ...]:
     ids: list[int] = []
     for geom_index in range(runtime.model.ngeom):
         if int(runtime.model.geom_contype[geom_index]) == 0:
             continue
         body_id = int(runtime.model.geom_bodyid[geom_index])
-        if _body_name(runtime, body_id) in ROBOT_BODY_NAMES:
+        if _body_name(runtime, body_id) in model.robot_body_names:
             ids.append(geom_index)
     return tuple(ids)
 
 
 def obstacle_collision_geom_ids(
     runtime: MuJoCoRuntime,
-    obstacle_geom_names: tuple[str, ...],
+    model: CollisionModel,
 ) -> tuple[int, ...]:
     ids: list[int] = []
-    for name in obstacle_geom_names:
+    for name in model.obstacle_geom_names:
         try:
             ids.append(runtime.geom_id(name))
         except ValueError:
@@ -62,7 +46,7 @@ def obstacle_collision_geom_ids(
             continue
         body_id = int(runtime.model.geom_bodyid[geom_index])
         body_name = _body_name(runtime, body_id)
-        if body_name in ROBOT_BODY_NAMES or body_name in IGNORE_BODY_NAMES:
+        if body_name in model.robot_body_names or body_name in model.ignore_body_names:
             continue
         if body_name == "world":
             continue
@@ -74,20 +58,17 @@ def obstacle_collision_geom_ids(
 def is_configuration_colliding(
     runtime: MuJoCoRuntime,
     qpos: np.ndarray,
-    obstacle_geom_names: tuple[str, ...],
-    *,
-    margin: float = 0.03,
-    ignore_geom_names: tuple[str, ...] = ("floor",),
+    model: CollisionModel,
 ) -> bool:
     saved_qpos = runtime.data.qpos.copy()
     try:
         runtime.set_joint_positions(qpos)
         runtime.forward()
 
-        robot_ids = robot_collision_geom_ids(runtime)
-        obstacle_ids = obstacle_collision_geom_ids(runtime, obstacle_geom_names)
+        robot_ids = robot_collision_geom_ids(runtime, model)
+        obstacle_ids = obstacle_collision_geom_ids(runtime, model)
         ignore_ids = set()
-        for name in ignore_geom_names:
+        for name in model.ignore_geom_names:
             try:
                 ignore_ids.add(runtime.geom_id(name))
             except ValueError:
@@ -100,7 +81,7 @@ def is_configuration_colliding(
                 distance = runtime.geom_distance_ids(
                     robot_id, obstacle_id, distmax=1.0
                 )
-                if distance < margin:
+                if distance < model.margin:
                     return True
 
         for contact_index in range(int(runtime.data.ncon)):
@@ -110,10 +91,10 @@ def is_configuration_colliding(
             if geom1 in ignore_ids or geom2 in ignore_ids:
                 continue
             if geom1 in robot_ids and geom2 in obstacle_ids:
-                if float(contact.dist) < margin:
+                if float(contact.dist) < model.margin:
                     return True
             if geom2 in robot_ids and geom1 in obstacle_ids:
-                if float(contact.dist) < margin:
+                if float(contact.dist) < model.margin:
                     return True
         return False
     finally:
@@ -125,17 +106,14 @@ def is_edge_colliding(
     runtime: MuJoCoRuntime,
     q_from: np.ndarray,
     q_to: np.ndarray,
-    obstacle_geom_names: tuple[str, ...],
+    model: CollisionModel,
     *,
-    margin: float = 0.03,
     samples: int = 8,
 ) -> bool:
     if samples < 2:
         samples = 2
     for alpha in np.linspace(0.0, 1.0, samples):
         q = (1.0 - alpha) * q_from + alpha * q_to
-        if is_configuration_colliding(
-            runtime, q, obstacle_geom_names, margin=margin
-        ):
+        if is_configuration_colliding(runtime, q, model):
             return True
     return False

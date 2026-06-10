@@ -25,8 +25,9 @@ def test_setup_logging_creates_log_file(tmp_path: Path):
     )
 
     assert log_path.exists()
-    assert log_path.parent == tmp_path
-    assert log_path.name.startswith("test_app_")
+    assert log_path.parent.parent == tmp_path
+    assert log_path.parent.name  # timestamp folder YYYYMMDD-HHMMSS
+    assert log_path.name == "test_app.log"
     assert log_path.suffix == ".log"
 
     logger = get_logger("sim")

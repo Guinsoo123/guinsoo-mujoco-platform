@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 from guinsoo_mujoco.demos.base import DemoSpec
-from guinsoo_mujoco.demos.legacy import LEGACY_DEMOS
+from guinsoo_mujoco.demos.openarm.preview_motion import create_preview_motion_spec
 from guinsoo_mujoco.demos.ur5e.ee_pose_avoid import create_ee_pose_avoid_spec
+from guinsoo_mujoco.demos.ur5e.ik_reach import create_ik_reach_spec
+from guinsoo_mujoco.demos.ur5e.joint_position import create_joint_position_spec
+from guinsoo_mujoco.demos.xlerobot.preview_motion import create_xlerobot_preview_motion_spec
 
 
 class DemoRegistry:
@@ -34,7 +37,9 @@ class DemoRegistry:
 
 def create_demo_registry() -> DemoRegistry:
     registry = DemoRegistry()
-    for spec in LEGACY_DEMOS:
-        registry.register(spec)
+    registry.register(create_joint_position_spec())
+    registry.register(create_ik_reach_spec())
     registry.register(create_ee_pose_avoid_spec())
+    registry.register(create_preview_motion_spec())
+    registry.register(create_xlerobot_preview_motion_spec())
     return registry

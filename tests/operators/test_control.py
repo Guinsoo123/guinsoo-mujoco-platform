@@ -1,18 +1,21 @@
 import numpy as np
 import pytest
 
-from guinsoo_mujoco.controllers import (
+from guinsoo_mujoco.demos.ur5e.ik_reach.controller import create_controller as create_ik_reach
+from guinsoo_mujoco.demos.ur5e.joint_position.controller import create_controller as create_joint_position
+from guinsoo_mujoco.operators.control import (
     JointPositionController,
     ReachMotionController,
-    create_demo_controller,
 )
 
 
 class FakeRuntime:
-    def __init__(self):
-        self.qpos = np.array([0.0, 0.5, -0.25])
-        self.qvel = np.array([0.0, 0.0, 0.0])
+    def __init__(self, dof: int = 3):
+        self.qpos = np.array([0.0, 0.5, -0.25] if dof == 3 else [0.0] * dof)
+        self.qvel = np.zeros(dof)
         self.ctrl = None
+        self.model = self
+        self.nq = dof
 
     def read_joint_state(self):
         return self.qpos.copy(), self.qvel.copy()
@@ -38,16 +41,17 @@ def test_joint_position_controller_writes_pd_control_to_runtime():
     np.testing.assert_allclose(sample["control"], runtime.ctrl)
 
 
-def test_create_demo_controller_supports_joint_position_and_ik_reach():
-    joint = create_demo_controller("joint_position", 6)
-    reach = create_demo_controller("ik_reach", 6)
+def test_demo_factories_create_expected_controllers():
+    runtime = FakeRuntime(dof=6)
+    joint = create_joint_position(runtime)
+    reach = create_ik_reach(runtime)
 
     assert isinstance(joint, JointPositionController)
     assert isinstance(reach, ReachMotionController)
 
 
 def test_reach_motion_controller_modulates_target_over_time():
-    runtime = FakeRuntime()
+    runtime = FakeRuntime(dof=6)
     runtime.qpos = np.zeros(6)
     runtime.qvel = np.zeros(6)
     controller = ReachMotionController(

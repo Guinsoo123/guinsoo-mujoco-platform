@@ -1,22 +1,11 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 import numpy as np
 
-from guinsoo_mujoco.demos.ur5e.ee_pose_avoid.collision import (
-    is_configuration_colliding,
-    is_edge_colliding,
-)
-from guinsoo_mujoco.demos.ur5e.ee_pose_avoid.config import (
-    COLLISION_MARGIN,
-    EDGE_COLLISION_SAMPLES,
-    OBSTACLE_GEOMS,
-    RRT_GOAL_BIAS,
-    RRT_MAX_ITERATIONS,
-    RRT_STEP_SIZE,
-)
 from guinsoo_mujoco.logging_config import get_logger
+from guinsoo_mujoco.operators.collision import CollisionModel, is_configuration_colliding, is_edge_colliding
 from guinsoo_mujoco.runtime import MuJoCoRuntime
 
 logger = get_logger("planner")
@@ -31,11 +20,11 @@ class RRTNode:
 @dataclass
 class RRTConnectPlanner:
     runtime: MuJoCoRuntime
-    step_size: float = RRT_STEP_SIZE
-    goal_bias: float = RRT_GOAL_BIAS
-    max_iterations: int = RRT_MAX_ITERATIONS
-    obstacle_geom_names: tuple[str, ...] = OBSTACLE_GEOMS
-    collision_margin: float = COLLISION_MARGIN
+    collision_model: CollisionModel
+    step_size: float = 0.08
+    goal_bias: float = 0.25
+    max_iterations: int = 5000
+    edge_collision_samples: int = 10
 
     def plan(self, q_start: np.ndarray, q_goal: np.ndarray) -> list[np.ndarray] | None:
         low, high = self.runtime.joint_limits()
@@ -81,8 +70,7 @@ class RRTConnectPlanner:
         return not is_configuration_colliding(
             self.runtime,
             q,
-            self.obstacle_geom_names,
-            margin=self.collision_margin,
+            self.collision_model,
         )
 
     def _is_edge_free(self, q_from: np.ndarray, q_to: np.ndarray) -> bool:
@@ -92,9 +80,8 @@ class RRTConnectPlanner:
             self.runtime,
             q_from,
             q_to,
-            self.obstacle_geom_names,
-            margin=self.collision_margin,
-            samples=EDGE_COLLISION_SAMPLES,
+            self.collision_model,
+            samples=self.edge_collision_samples,
         )
 
     def _sample(self, q_target: np.ndarray, low: np.ndarray, high: np.ndarray) -> np.ndarray:

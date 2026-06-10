@@ -20,8 +20,19 @@ def test_ee_pose_avoid_spec_has_documentation():
     spec = registry.get("ur5e", "ee_pose_avoid")
     doc_path = spec.documentation_path()
     assert doc_path is not None
+    assert doc_path.name == "DESIGN.md"
     assert doc_path.exists()
     assert "RRT" in doc_path.read_text(encoding="utf-8")
+
+
+def test_all_demos_have_design_docs():
+    registry = create_demo_registry()
+    for robot_id in ("ur5e", "openarm", "xlerobot"):
+        for spec in registry.list_for_robot(robot_id):
+            doc_path = spec.documentation_path()
+            assert doc_path is not None, f"missing doc for {robot_id}/{spec.demo_id}"
+            assert doc_path.exists()
+            assert doc_path.name == "DESIGN.md"
 
 
 def test_ee_pose_avoid_scene_template_resolves(tmp_path: Path):

@@ -4,6 +4,9 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from guinsoo_mujoco.operators.collision import CollisionModel
+from guinsoo_mujoco.operators.ik import IkOptions
+
 
 @dataclass(frozen=True)
 class Waypoint:
@@ -56,6 +59,22 @@ OBSTACLE_GEOMS: tuple[str, ...] = (
 
 HOME_QPOS = np.array(WAYPOINTS[0].joint_goal, dtype=float)
 
+UR5E_ROBOT_BODY_NAMES: frozenset[str] = frozenset(
+    {
+        "base",
+        "shoulder_link",
+        "upper_arm_link",
+        "forearm_link",
+        "wrist_1_link",
+        "wrist_2_link",
+        "wrist_3_link",
+    }
+)
+
+IGNORE_BODY_NAMES: frozenset[str] = frozenset(
+    {"world", "target_home", "target_approach", "target_over", "target_place"}
+)
+
 RRT_STEP_SIZE = 0.08
 RRT_GOAL_BIAS = 0.25
 RRT_MAX_ITERATIONS = 5000
@@ -73,3 +92,19 @@ TRACK_KD = 2.0
 PATH_SPEED = 1.5
 JOINT_ARRIVAL_TOL = 0.05
 HOLD_DURATION = 1.0
+
+COLLISION_MODEL = CollisionModel(
+    robot_body_names=UR5E_ROBOT_BODY_NAMES,
+    ignore_body_names=IGNORE_BODY_NAMES,
+    obstacle_geom_names=OBSTACLE_GEOMS,
+    margin=COLLISION_MARGIN,
+)
+
+IK_OPTIONS = IkOptions(
+    site_name=EE_SITE,
+    max_iterations=IK_MAX_ITERATIONS,
+    position_tol=IK_POSITION_TOL,
+    orientation_tol=IK_ORIENTATION_TOL,
+    damping=IK_DAMPING,
+    collision_model=COLLISION_MODEL,
+)
