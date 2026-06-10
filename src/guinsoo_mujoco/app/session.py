@@ -75,7 +75,16 @@ class SimSession:
 
     def reset(self) -> None:
         self.runtime.reset()
+        self.runtime.data.qvel[:] = 0.0
+        self.runtime.data.qacc[:] = 0.0
         self.controller.reset(self.runtime)
+        self.runtime.forward()
+        logger.info(
+            "会话已重置：robot=%s demo=%s time=%.3f",
+            self.robot.robot_id,
+            self.demo,
+            float(self.runtime.data.time),
+        )
 
     def step(self, dt: float) -> dict:
         sample = self.controller.step(

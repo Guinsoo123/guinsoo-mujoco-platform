@@ -80,6 +80,10 @@ class MujocoGLWidget(QWidget):
     def set_simulation_running(self, running: bool) -> None:
         self._sim_running = running
 
+    def reset_interaction(self) -> None:
+        """Clear mouse perturbation so reset does not leave stale applied forces."""
+        self._release_mouse_state()
+
     def apply_perturbation(self, runtime: MuJoCoRuntime, sim_running: bool) -> None:
         if self._perturb is None or not self._perturb.active:
             return

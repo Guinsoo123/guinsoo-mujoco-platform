@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import enum
 import logging
 import sys
 import traceback
@@ -9,6 +10,7 @@ from PySide6.QtCore import QTimer
 from PySide6.QtGui import QTextCursor
 from PySide6.QtWidgets import (
     QApplication,
+    QHBoxLayout,
     QLabel,
     QListWidget,
     QListWidgetItem,
@@ -40,6 +42,12 @@ logger = get_logger("ui")
 _MAX_LOG_LINES = 2000
 
 
+class SimRunState(enum.Enum):
+    STOPPED = "stopped"
+    RUNNING = "running"
+    PAUSED = "paused"
+
+
 class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
@@ -53,6 +61,7 @@ class MainWindow(QMainWindow):
         self._last_controller_status: str | None = None
         self._last_controller_phase: str | None = None
         self._last_controller_waypoint: str | None = None
+        self._sim_state = SimRunState.STOPPED
         self.setWindowTitle("Guinsoo Sim Studio")
         self.resize(1280, 820)
         self._timer = QTimer(self)
@@ -160,18 +169,30 @@ class MainWindow(QMainWindow):
         tabs = QTabWidget()
         run_tab = QWidget()
         run_layout = QVBoxLayout(run_tab)
+        transport_row = QHBoxLayout()
         self.run_button = QPushButton("运行")
-        self.run_button.clicked.connect(self._toggle_run)
+        self.run_button.clicked.connect(self._start_run)
+        self.pause_button = QPushButton("暂停")
+        self.pause_button.clicked.connect(self._pause_run)
+        self.resume_button = QPushButton("继续")
+        self.resume_button.clicked.connect(self._resume_run)
+        self.stop_button = QPushButton("停止")
+        self.stop_button.clicked.connect(self._stop_run)
+        transport_row.addWidget(self.run_button)
+        transport_row.addWidget(self.pause_button)
+        transport_row.addWidget(self.resume_button)
+        transport_row.addWidget(self.stop_button)
+        run_layout.addLayout(transport_row)
         self.record_button = QPushButton("开始记录")
         self.record_button.clicked.connect(self._toggle_recording)
         self.reset_button = QPushButton("重置")
         self.reset_button.clicked.connect(self._reset)
         self.reset_camera_button = QPushButton("重置视角")
         self.reset_camera_button.clicked.connect(self.viewer.reset_camera)
-        run_layout.addWidget(self.run_button)
         run_layout.addWidget(self.record_button)
         run_layout.addWidget(self.reset_button)
         run_layout.addWidget(self.reset_camera_button)
+        self._update_transport_buttons()
         run_layout.addWidget(QLabel("运行状态"))
         self.status_summary = QLabel("等待加载场景。")
         self.status_summary.setWordWrap(True)
@@ -195,18 +216,15 @@ class MainWindow(QMainWindow):
         if current is None:
             return
         self._discard_recorder()
-        was_running = self._timer.isActive()
-        if was_running:
-            self._timer.stop()
-            self.run_button.setText("运行")
+        was_running = self._sim_state == SimRunState.RUNNING
+        self._set_sim_state(SimRunState.STOPPED)
         self.current_robot_id = current.data(256)
         robot = self.model.registry.get(self.current_robot_id)
         logger.info("选择机器人：%s", robot.display_name)
         self._populate_demo_list(robot.robot_id)
         self._load_session()
         if was_running and self.session is not None:
-            self._timer.start(33)
-            self.run_button.setText("暂停")
+            self._start_run()
         self.statusBar().showMessage(f"已选择 {robot.display_name}")
 
     def _populate_demo_list(self, robot_id: str) -> None:
@@ -239,16 +257,13 @@ class MainWindow(QMainWindow):
         if not demo or demo == self.current_demo:
             return
         self._discard_recorder()
-        was_running = self._timer.isActive()
-        if was_running:
-            self._timer.stop()
-            self.run_button.setText("运行")
+        was_running = self._sim_state == SimRunState.RUNNING
+        self._set_sim_state(SimRunState.STOPPED)
         self.current_demo = demo
         logger.info("切换 Demo：%s", demo)
         self._load_session()
         if was_running and self.session is not None:
-            self._timer.start(33)
-            self.run_button.setText("暂停")
+            self._start_run()
 
     def _load_session(self) -> None:
         self.session = None
@@ -315,7 +330,7 @@ class MainWindow(QMainWindow):
             logger.warning("无法记录：场景未加载")
             self.statusBar().showMessage("无法记录：场景未加载。")
             return
-        if not self._timer.isActive():
+        if self._sim_state != SimRunState.RUNNING:
             logger.warning("无法记录：仿真未运行")
             self.statusBar().showMessage("请先点击“运行”开始仿真，再记录 episode。")
             return
@@ -324,24 +339,40 @@ class MainWindow(QMainWindow):
         logger.info("开始记录 episode，目录：%s", default_runs_dir())
         self.statusBar().showMessage(f"正在记录到 {default_runs_dir()}")
 
-    def _toggle_run(self) -> None:
-        if self._timer.isActive():
+    def _update_transport_buttons(self) -> None:
+        self.run_button.setEnabled(self._sim_state == SimRunState.STOPPED)
+        self.pause_button.setEnabled(self._sim_state == SimRunState.RUNNING)
+        self.resume_button.setEnabled(self._sim_state == SimRunState.PAUSED)
+        self.stop_button.setEnabled(
+            self._sim_state in (SimRunState.RUNNING, SimRunState.PAUSED)
+        )
+
+    def _set_sim_state(self, state: SimRunState) -> None:
+        if state == SimRunState.RUNNING:
+            self._timer.start(33)
+            self.viewer.set_simulation_running(True)
+        else:
             self._timer.stop()
-            self.run_button.setText("运行")
             self.viewer.set_simulation_running(False)
-            logger.info("仿真已暂停")
-            self.statusBar().showMessage("仿真已暂停。")
-            return
+        self._sim_state = state
+        self._update_transport_buttons()
+
+    def _ensure_session_loaded(self) -> bool:
         if self.session is None:
             self._load_session()
         if self.session is None:
             logger.warning("无法运行：场景未加载")
             self.statusBar().showMessage("无法运行：场景未加载。")
+            return False
+        return True
+
+    def _start_run(self) -> None:
+        if self._sim_state != SimRunState.STOPPED:
+            return
+        if not self._ensure_session_loaded():
             return
         selection = self.model.select(self.current_robot_id, self.current_demo)
-        self._timer.start(33)
-        self.run_button.setText("暂停")
-        self.viewer.set_simulation_running(True)
+        self._set_sim_state(SimRunState.RUNNING)
         logger.info(
             "仿真运行中：%s / %s",
             selection.robot.display_name,
@@ -351,23 +382,63 @@ class MainWindow(QMainWindow):
             f"仿真运行中：{selection.robot.display_name} / {selection.demo}"
         )
 
+    def _pause_run(self) -> None:
+        if self._sim_state != SimRunState.RUNNING:
+            return
+        self._set_sim_state(SimRunState.PAUSED)
+        logger.info("仿真已暂停")
+        self.statusBar().showMessage("仿真已暂停，可点击“继续”恢复或“停止”结束。")
+
+    def _resume_run(self) -> None:
+        if self._sim_state != SimRunState.PAUSED:
+            return
+        if not self._ensure_session_loaded():
+            return
+        selection = self.model.select(self.current_robot_id, self.current_demo)
+        self._set_sim_state(SimRunState.RUNNING)
+        logger.info(
+            "仿真继续：%s / %s",
+            selection.robot.display_name,
+            selection.demo,
+        )
+        self.statusBar().showMessage(
+            f"仿真继续：{selection.robot.display_name} / {selection.demo}"
+        )
+
+    def _stop_run(self) -> None:
+        if self._sim_state == SimRunState.STOPPED:
+            return
+        self._set_sim_state(SimRunState.STOPPED)
+        self._reset_simulation(clear_plot=True)
+        logger.info("仿真已停止并复位")
+        self.statusBar().showMessage("仿真已停止，场景与控制器已恢复初始状态。")
+
     def _discard_recorder(self) -> None:
         if self._recorder is None:
             return
         self._recorder = None
         self.record_button.setText("开始记录")
 
-    def _reset(self) -> None:
+    def _reset_simulation(self, *, clear_plot: bool) -> None:
         self._discard_recorder()
-        self._plot_t.clear()
-        self._plot_y.clear()
-        self.curve.setData([], [])
+        if clear_plot:
+            self._plot_t.clear()
+            self._plot_y.clear()
+            self.curve.setData([], [])
         self._reset_controller_log_state()
         if self.session is not None:
+            self.viewer.reset_interaction()
             self.session.reset()
             self.viewer.refresh()
-            logger.info("仿真已重置")
-        self.statusBar().showMessage("仿真已重置。")
+
+    def _reset(self) -> None:
+        if self._sim_state != SimRunState.STOPPED:
+            self._set_sim_state(SimRunState.STOPPED)
+        self._reset_simulation(clear_plot=True)
+        logger.info("仿真已重置")
+        self.statusBar().showMessage(
+            "仿真已重置：场景、关节角与控制器已恢复初始，可再次点击“运行”。"
+        )
 
     def _reset_controller_log_state(self) -> None:
         self._last_controller_status = None
@@ -421,9 +492,7 @@ class MainWindow(QMainWindow):
             self._handle_tick_error(exc)
 
     def _handle_tick_error(self, exc: BaseException) -> None:
-        self._timer.stop()
-        self.run_button.setText("运行")
-        self.viewer.set_simulation_running(False)
+        self._set_sim_state(SimRunState.PAUSED)
         summary = f"仿真异常已暂停：{exc}"
         self._set_status_summary(summary)
         logger.error("仿真步进异常，已自动暂停：%s", exc)
