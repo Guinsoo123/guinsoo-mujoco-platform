@@ -1,0 +1,9 @@
+{
+  "robot_id": "openarm",
+  "source_url": "https://github.com/enactic/dora-openarm-mujoco",
+  "license": "Apache-2.0",
+  "cache_subdir": "enactic/dora-openarm-mujoco",
+  "entrypoint": "scene.xml",
+  "required_files": ["scene.xml"],
+  "notes": "第一版预览适配器。模型结构和入口文件以实际同步的上游仓库为准。"
+}

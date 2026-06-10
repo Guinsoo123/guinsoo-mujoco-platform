@@ -1,0 +1,9 @@
+{
+  "robot_id": "xlerobot",
+  "source_url": "https://github.com/Chemauto/xlerobot-mujoco-nav",
+  "license": "UNKNOWN",
+  "cache_subdir": "experimental/xlerobot",
+  "entrypoint": "scene.xml",
+  "required_files": ["scene.xml"],
+  "notes": "实验性预览适配器。接入前必须完成许可证、模型质量和来源稳定性检查。"
+}

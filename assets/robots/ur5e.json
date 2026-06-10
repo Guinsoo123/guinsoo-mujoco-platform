@@ -1,0 +1,9 @@
+{
+  "robot_id": "ur5e",
+  "source_url": "https://github.com/google-deepmind/mujoco_menagerie/tree/main/universal_robots_ur5e",
+  "license": "Apache-2.0",
+  "cache_subdir": "mujoco_menagerie/universal_robots_ur5e",
+  "entrypoint": "scene.xml",
+  "required_files": ["scene.xml", "ur5e.xml", "assets"],
+  "notes": "第一版稳定样板。建议通过资产下载命令缓存 MuJoCo Menagerie 的 universal_robots_ur5e 目录。"
+}

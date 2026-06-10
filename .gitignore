@@ -1,0 +1,16 @@
+.DS_Store
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+build/
+dist/
+*.egg-info/
+
+# 本地仿真资产、运行数据和 brainstorming 临时材料不进入仓库。
+.superpowers/
+.guinsoo_cache/
+data/runs/
+data/cache/

@@ -1,0 +1,14 @@
+name: robot_dev
+channels:
+  - conda-forge
+dependencies:
+  - python=3.11
+  - h5py
+  - mujoco
+  - numpy
+  - pyqtgraph
+  - pyside6
+  - pytest
+  - pip
+  - pip:
+      - -e .

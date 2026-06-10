@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "guinsoo-mujoco-platform"
+version = "0.1.0"
+description = "面向 Mac 的 MuJoCo 运动控制算法验证平台"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "h5py",
+  "mujoco",
+  "numpy",
+  "pyqtgraph",
+  "PySide6",
+]
+
+[project.optional-dependencies]
+dev = ["pytest"]
+notebook = ["jupyterlab", "matplotlib", "pandas"]
+
+[project.scripts]
+guinsoo-sim-studio = "guinsoo_mujoco.app.main:main"
+guinsoo-mujoco = "guinsoo_mujoco.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
