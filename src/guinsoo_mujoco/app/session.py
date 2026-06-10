@@ -64,6 +64,13 @@ class SimSession:
             self.runtime, float(self.runtime.data.time), dt
         )
         self.runtime.step()
+        telemetry = self.runtime.read_telemetry()
+        sample["time"] = telemetry["time"]
+        sample["qpos"] = telemetry["qpos"]
+        sample["qvel"] = telemetry["qvel"]
+        sample["ctrl"] = telemetry["ctrl"]
+        sample["actuator_force"] = telemetry["actuator_force"]
+        sample["qfrc_actuator"] = telemetry["qfrc_actuator"]
         return sample
 
     @staticmethod

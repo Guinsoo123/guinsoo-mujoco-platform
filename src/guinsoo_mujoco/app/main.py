@@ -23,6 +23,8 @@ from PySide6.QtWidgets import (
 from guinsoo_mujoco.app.model import SimStudioModel
 from guinsoo_mujoco.app.session import AssetNotReadyError, SimSession
 from guinsoo_mujoco.app.viewer import MujocoGLWidget
+from guinsoo_mujoco.data import RunRecorder, default_runs_dir
+from guinsoo_mujoco.recording import append_step_sample, create_run_recorder
 
 
 class MainWindow(QMainWindow):
@@ -32,6 +34,7 @@ class MainWindow(QMainWindow):
         self.current_robot_id = "ur5e"
         self.current_demo = "joint_position"
         self.session: SimSession | None = None
+        self._recorder: RunRecorder | None = None
         self._sim_dt = 0.002
         self._steps_per_tick = 16
         self.setWindowTitle("Guinsoo Sim Studio")
@@ -99,7 +102,8 @@ class MainWindow(QMainWindow):
         layout.addLayout(form)
         self.run_button = QPushButton("运行")
         self.run_button.clicked.connect(self._toggle_run)
-        self.record_button = QPushButton("记录 episode")
+        self.record_button = QPushButton("开始记录")
+        self.record_button.clicked.connect(self._toggle_recording)
         self.reset_button = QPushButton("重置")
         self.reset_button.clicked.connect(self._reset)
         self.reset_camera_button = QPushButton("重置视角")
@@ -113,7 +117,8 @@ class MainWindow(QMainWindow):
         self.log.setReadOnly(True)
         self.log.setText(
             "选择机器人后会尝试加载本地缓存的 MuJoCo 场景。\n"
-            "若资产未下载，请运行：python -m guinsoo_mujoco.cli fetch-assets ur5e"
+            "若资产未下载，请运行：python -m guinsoo_mujoco.cli fetch-assets ur5e\n\n"
+            f"Episode 默认保存目录：{default_runs_dir()}"
         )
         layout.addWidget(self.log)
         layout.addStretch()
@@ -125,6 +130,7 @@ class MainWindow(QMainWindow):
     def _select_robot(self, current: QListWidgetItem | None) -> None:
         if current is None:
             return
+        self._discard_recorder()
         was_running = self._timer.isActive()
         if was_running:
             self._timer.stop()
@@ -145,6 +151,7 @@ class MainWindow(QMainWindow):
     def _select_demo(self, demo: str) -> None:
         if not demo or demo == self.current_demo:
             return
+        self._discard_recorder()
         was_running = self._timer.isActive()
         if was_running:
             self._timer.stop()
@@ -182,6 +189,31 @@ class MainWindow(QMainWindow):
             f"场景: {self.session.runtime.model_path}"
         )
 
+    def _toggle_recording(self) -> None:
+        if self._recorder is not None:
+            artifact = self._recorder.close()
+            self._recorder = None
+            self.record_button.setText("开始记录")
+            csv_hint = ""
+            if artifact.plotjuggler_csv_path is not None:
+                csv_hint = f"\nPlotJuggler CSV: {artifact.plotjuggler_csv_path}"
+            self.log.append(
+                f"\n已保存 episode：\nHDF5: {artifact.hdf5_path}\n元数据: {artifact.metadata_path}{csv_hint}"
+            )
+            self.statusBar().showMessage(f"已保存 episode 到 {artifact.hdf5_path.parent}")
+            return
+        if self.session is None:
+            self._load_session()
+        if self.session is None:
+            self.statusBar().showMessage("无法记录：场景未加载。")
+            return
+        if not self._timer.isActive():
+            self.statusBar().showMessage("请先点击“运行”开始仿真，再记录 episode。")
+            return
+        self._recorder = create_run_recorder(self.session)
+        self.record_button.setText("停止并保存")
+        self.statusBar().showMessage(f"正在记录到 {default_runs_dir()}")
+
     def _toggle_run(self) -> None:
         if self._timer.isActive():
             self._timer.stop()
@@ -202,7 +234,14 @@ class MainWindow(QMainWindow):
             f"仿真运行中：{selection.robot.display_name} / {selection.demo}"
         )
 
+    def _discard_recorder(self) -> None:
+        if self._recorder is None:
+            return
+        self._recorder = None
+        self.record_button.setText("开始记录")
+
     def _reset(self) -> None:
+        self._discard_recorder()
         self._plot_t.clear()
         self._plot_y.clear()
         self.curve.setData([], [])
@@ -218,6 +257,8 @@ class MainWindow(QMainWindow):
         sample: dict | None = None
         for _ in range(self._steps_per_tick):
             sample = self.session.step(self._sim_dt)
+            if self._recorder is not None and sample is not None:
+                append_step_sample(self._recorder, self.session.runtime, sample)
         if sample is None:
             return
         t = float(sample["time"])

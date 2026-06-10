@@ -51,6 +51,36 @@ class MuJoCoRuntime:
     def read_joint_state(self) -> tuple[np.ndarray, np.ndarray]:
         return self.data.qpos.copy(), self.data.qvel.copy()
 
+    def actuator_names(self) -> list[str]:
+        names: list[str] = []
+        for index in range(self.model.nu):
+            name = self.mujoco.mj_id2name(
+                self.model, self.mujoco.mjtObj.mjOBJ_ACTUATOR, index
+            )
+            names.append(name or f"actuator_{index}")
+        return names
+
+    def joint_names(self) -> list[str]:
+        if self.model.nu > 0:
+            return self.actuator_names()
+        names: list[str] = []
+        for index in range(self.model.njnt):
+            name = self.mujoco.mj_id2name(
+                self.model, self.mujoco.mjtObj.mjOBJ_JOINT, index
+            )
+            names.append(name or f"joint_{index}")
+        return names
+
+    def read_telemetry(self) -> dict[str, np.ndarray | float]:
+        return {
+            "time": float(self.data.time),
+            "qpos": self.data.qpos.copy(),
+            "qvel": self.data.qvel.copy(),
+            "ctrl": self.data.ctrl.copy(),
+            "actuator_force": self.data.actuator_force.copy(),
+            "qfrc_actuator": self.data.qfrc_actuator.copy(),
+        }
+
     def set_control(self, control: np.ndarray) -> None:
         value = np.asarray(control, dtype=float)
         if value.size > self.data.ctrl.size:
