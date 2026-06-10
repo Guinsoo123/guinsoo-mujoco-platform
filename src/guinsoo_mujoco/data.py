@@ -129,11 +129,12 @@ class RunRecorder:
 
     def close(self) -> RunArtifact:
         self._closed = True
-        self.output_dir.mkdir(parents=True, exist_ok=True)
-        stem = self._artifact_stem()
-        hdf5_path = self.output_dir / f"{stem}.h5"
-        metadata_path = self.output_dir / f"{stem}.json"
-        plotjuggler_csv_path = self.output_dir / f"{stem}_plotjuggler.csv"
+        run_dir = self._run_dir()
+        run_dir.mkdir(parents=True, exist_ok=True)
+        stem = "episode"
+        hdf5_path = run_dir / f"{stem}.h5"
+        metadata_path = run_dir / f"{stem}.json"
+        plotjuggler_csv_path = run_dir / f"{stem}_plotjuggler.csv"
 
         with h5py.File(hdf5_path, "w") as handle:
             handle.create_dataset("time", data=np.asarray(self._times, dtype=float))
@@ -153,6 +154,7 @@ class RunRecorder:
 
         metadata = asdict(self.metadata)
         metadata["created_at"] = datetime.now(timezone.utc).isoformat()
+        metadata["run_dir"] = str(run_dir)
         metadata["hdf5_file"] = hdf5_path.name
         metadata_path.write_text(
             json.dumps(metadata, ensure_ascii=False, indent=2),
@@ -176,9 +178,10 @@ class RunRecorder:
             plotjuggler_csv_path=plotjuggler_csv_path,
         )
 
-    def _artifact_stem(self) -> str:
+    def _run_dir(self) -> Path:
         timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-        return f"{timestamp}-{self.metadata.robot_id}-{self.metadata.demo}"
+        folder_name = f"{timestamp}-{self.metadata.demo}"
+        return self.output_dir / folder_name
 
 
 def export_plotjuggler_csv(

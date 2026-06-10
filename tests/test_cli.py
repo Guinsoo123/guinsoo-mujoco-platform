@@ -43,4 +43,4 @@ def test_export_plotjuggler_writes_csv(tmp_path, capsys):
     captured = capsys.readouterr()
     assert code == 0
     assert (tmp_path / "out.csv").exists()
-    assert "PlotJuggler CSV" in captured.out
+    assert "PlotJuggler CSV" in captured.err

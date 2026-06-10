@@ -10,9 +10,13 @@ from guinsoo_mujoco.assets import (
     repo_root,
     resolve_scene_path,
 )
-from guinsoo_mujoco.controllers import Controller, create_demo_controller
+from guinsoo_mujoco.controllers import Controller
+from guinsoo_mujoco.demos.registry import create_demo_registry
+from guinsoo_mujoco.logging_config import get_logger
 from guinsoo_mujoco.robots import RobotAdapter, create_default_robot_registry
 from guinsoo_mujoco.runtime import MuJoCoRuntime
+
+logger = get_logger("sim")
 
 
 class AssetNotReadyError(FileNotFoundError):
@@ -48,11 +52,25 @@ class SimSession:
         manifest = AssetManifest.load(root / robot.asset_manifest)
         missing = missing_required_assets(manifest, cache_root)
         if missing:
+            logger.warning(
+                "资产未缓存：robot=%s missing=%s",
+                robot.robot_id,
+                ", ".join(missing),
+            )
             raise AssetNotReadyError(robot.robot_id, missing)
-        scene_path = resolve_scene_path(manifest, cache_root)
+        demo_registry = create_demo_registry()
+        demo_spec = demo_registry.get(robot_id, demo)
+        scene_path = demo_spec.resolve_scene(manifest, cache_root=cache_root, project_root=root)
+        logger.info(
+            "加载会话：robot=%s demo=%s scene=%s",
+            robot_id,
+            demo,
+            scene_path,
+        )
         runtime = MuJoCoRuntime(scene_path)
-        controller = create_demo_controller(demo, runtime.model.nq)
+        controller = demo_spec.create_controller(runtime)
         controller.reset(runtime)
+        logger.info("控制器已就绪：%s", controller.name)
         return cls(robot=robot, demo=demo, runtime=runtime, controller=controller)
 
     def reset(self) -> None:

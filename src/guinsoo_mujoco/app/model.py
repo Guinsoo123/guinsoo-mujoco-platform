@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from guinsoo_mujoco.demos.registry import create_demo_registry
 from guinsoo_mujoco.robots import RobotAdapter, create_default_robot_registry
 
 
@@ -21,6 +22,7 @@ class RobotSelection:
 class SimStudioModel:
     def __init__(self) -> None:
         self.registry = create_default_robot_registry()
+        self.demo_registry = create_demo_registry()
 
     def robot_cards(self) -> list[dict[str, str]]:
         cards: list[dict[str, str]] = []
@@ -33,6 +35,18 @@ class SimStudioModel:
                     "support_label": SUPPORT_LABELS[robot.support_level],
                     "description": robot.description,
                     "demos": ", ".join(robot.demos),
+                }
+            )
+        return cards
+
+    def demo_cards(self, robot_id: str) -> list[dict[str, str]]:
+        cards: list[dict[str, str]] = []
+        for spec in self.demo_registry.list_for_robot(robot_id):
+            cards.append(
+                {
+                    "demo_id": spec.demo_id,
+                    "display_name": spec.display_name,
+                    "description": spec.description,
                 }
             )
         return cards

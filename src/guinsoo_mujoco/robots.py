@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal
 
+from guinsoo_mujoco.demos.registry import create_demo_registry
+
 
 SupportLevel = Literal["stable", "preview", "experimental"]
 
@@ -37,6 +39,10 @@ class RobotRegistry:
         return list(self._robots.values())
 
 
+def _demos_for(robot_id: str) -> list[str]:
+    return create_demo_registry().demo_ids_for_robot(robot_id)
+
+
 def create_default_robot_registry() -> RobotRegistry:
     registry = RobotRegistry()
     registry.register(
@@ -46,7 +52,7 @@ def create_default_robot_registry() -> RobotRegistry:
             support_level="stable",
             asset_manifest="assets/robots/ur5e.json",
             default_scene="scene.xml",
-            demos=["joint_position", "ik_reach"],
+            demos=_demos_for("ur5e"),
             description="稳定样板机器人，来源优先使用 DeepMind MuJoCo Menagerie。",
         )
     )
@@ -57,7 +63,7 @@ def create_default_robot_registry() -> RobotRegistry:
             support_level="preview",
             asset_manifest="assets/robots/openarm.json",
             default_scene="scene.xml",
-            demos=["preview_motion"],
+            demos=_demos_for("openarm"),
             description="预览适配器，参考 enactic/openarm 与 dora-openarm-mujoco。",
         )
     )
@@ -68,7 +74,7 @@ def create_default_robot_registry() -> RobotRegistry:
             support_level="experimental",
             asset_manifest="assets/robots/xlerobot.json",
             default_scene="scene.xml",
-            demos=["preview_motion"],
+            demos=_demos_for("xlerobot"),
             description="实验性轮式双臂机器人适配器，模型来源需完成许可证检查。",
         )
     )

@@ -14,3 +14,5 @@
 - `step(runtime, t, dt)`：读取运行时状态，写入控制量，并返回一份可记录的诊断数据。
 
 后续 IK、轨迹跟踪和抓取到点示例应沿用同一合约。
+
+独立 Demo 包（含场景、规划与控制）见 `src/guinsoo_mujoco/demos/`。例如 UR5e 末端避障到点 demo 在 `demos/ur5e/ee_pose_avoid/`，通过 `DemoRegistry` 注册，不依赖 Qt 界面。

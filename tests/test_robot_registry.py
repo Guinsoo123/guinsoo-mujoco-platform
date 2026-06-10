@@ -16,6 +16,7 @@ def test_default_registry_exposes_one_stable_and_two_preview_robots():
     assert registry.get("ur5e").support_level == "stable"
     assert registry.get("openarm").support_level == "preview"
     assert registry.get("xlerobot").support_level == "experimental"
+    assert "ee_pose_avoid" in registry.get("ur5e").demos
 
 
 def test_registry_rejects_duplicate_robot_ids():

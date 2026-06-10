@@ -30,7 +30,8 @@ def list_runs(runs_dir: str | Path | None = None) -> list[RunSummary]:
         return []
 
     summaries: list[RunSummary] = []
-    for metadata_path in sorted(root.glob("*.json"), reverse=True):
+    metadata_paths = sorted(root.glob("**/*.json"), reverse=True)
+    for metadata_path in metadata_paths:
         try:
             summaries.append(_load_summary(metadata_path))
         except (OSError, ValueError, json.JSONDecodeError):
@@ -72,7 +73,7 @@ def _load_summary(metadata_path: Path) -> RunSummary:
     metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
     sample_count = _read_sample_count(artifact.hdf5_path)
     return RunSummary(
-        stem=artifact.hdf5_path.stem,
+        stem=metadata_path.parent.name,
         artifact=artifact,
         robot_id=str(metadata.get("robot_id", "unknown")),
         demo=str(metadata.get("demo", metadata.get("controller", "unknown"))),

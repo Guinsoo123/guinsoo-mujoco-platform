@@ -51,6 +51,8 @@ def test_run_recorder_writes_joint_telemetry_and_plotjuggler_csv(tmp_path: Path)
 
     artifact = recorder.close()
 
+    assert artifact.hdf5_path.parent.name.endswith("joint_position")
+    assert artifact.hdf5_path.name == "episode.h5"
     assert artifact.hdf5_path.exists()
     assert artifact.metadata_path.exists()
     assert artifact.plotjuggler_csv_path is not None

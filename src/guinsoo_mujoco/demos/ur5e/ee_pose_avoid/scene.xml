@@ -1,0 +1,67 @@
+<mujoco model="ur5e ee_pose_avoid scene">
+  <include file="ur5e.xml"/>
+
+  <statistic center="0.4 0 0.45" extent="1.0"/>
+
+  <visual>
+    <headlight diffuse="0.6 0.6 0.6" ambient="0.1 0.1 0.1" specular="0 0 0"/>
+    <rgba haze="0.15 0.25 0.35 1"/>
+    <global azimuth="120" elevation="-20"/>
+  </visual>
+
+  <asset>
+    <texture type="skybox" builtin="gradient" rgb1="0.3 0.5 0.7" rgb2="0 0 0" width="512" height="3072"/>
+    <texture type="2d" name="groundplane" builtin="checker" mark="edge" rgb1="0.2 0.3 0.4" rgb2="0.1 0.2 0.3"
+      markrgb="0.8 0.8 0.8" width="300" height="300"/>
+    <material name="groundplane" texture="groundplane" texuniform="true" texrepeat="5 5" reflectance="0.2"/>
+    <material name="table_mat" rgba="0.55 0.45 0.35 1"/>
+    <material name="obstacle_mat" rgba="0.85 0.25 0.2 1"/>
+    <material name="target_x" rgba="1 0.2 0.2 0.9"/>
+    <material name="target_y" rgba="0.2 1 0.2 0.9"/>
+    <material name="target_z" rgba="0.2 0.4 1 0.9"/>
+  </asset>
+
+  <worldbody>
+    <light pos="0 0 2" dir="0 0 -1" directional="true"/>
+    <geom name="floor" size="0 0 0.05" type="plane" material="groundplane"/>
+
+    <body name="work_table" pos="0.5 0 0.15">
+      <geom name="table" type="box" size="0.35 0.5 0.15" material="table_mat"
+        contype="1" conaffinity="1"/>
+    </body>
+
+    <body name="obstacle_a_body" pos="0.42 -0.12 0.38">
+      <geom name="obstacle_a" type="box" size="0.06 0.06 0.18" material="obstacle_mat"
+        contype="1" conaffinity="1"/>
+    </body>
+    <body name="obstacle_b_body" pos="0.50 0.0 0.42">
+      <geom name="obstacle_b" type="box" size="0.08 0.08 0.22" material="obstacle_mat"
+        contype="1" conaffinity="1"/>
+    </body>
+    <body name="obstacle_c_body" pos="0.46 0.15 0.36">
+      <geom name="obstacle_c" type="box" size="0.05 0.05 0.15" material="obstacle_mat"
+        contype="1" conaffinity="1"/>
+    </body>
+
+    <body mocap="true" name="target_home" pos="0.207 -0.2414 0.9741" quat="0.6627 0.4436 0.5988 -0.0742">
+      <geom type="box" size="0.01 0.04 0.005" material="target_x" contype="0" conaffinity="0"/>
+      <geom type="box" size="0.04 0.01 0.005" pos="0 0 0" material="target_y" contype="0" conaffinity="0"/>
+      <geom type="box" size="0.005 0.01 0.04" material="target_z" contype="0" conaffinity="0"/>
+    </body>
+    <body mocap="true" name="target_approach" pos="0.4251 -0.452 0.8209" quat="-0.3127 0.328 -0.0397 0.8905">
+      <geom type="box" size="0.01 0.04 0.005" material="target_x" contype="0" conaffinity="0"/>
+      <geom type="box" size="0.04 0.01 0.005" material="target_y" contype="0" conaffinity="0"/>
+      <geom type="box" size="0.005 0.01 0.04" material="target_z" contype="0" conaffinity="0"/>
+    </body>
+    <body mocap="true" name="target_over" pos="0.417 0.4729 0.6578" quat="0.5561 -0.6627 0.1994 0.4603">
+      <geom type="box" size="0.01 0.04 0.005" material="target_x" contype="0" conaffinity="0"/>
+      <geom type="box" size="0.04 0.01 0.005" material="target_y" contype="0" conaffinity="0"/>
+      <geom type="box" size="0.005 0.01 0.04" material="target_z" contype="0" conaffinity="0"/>
+    </body>
+    <body mocap="true" name="target_place" pos="0.2529 0.4232 0.6652" quat="0.2494 -0.177 -0.2715 0.9125">
+      <geom type="box" size="0.01 0.04 0.005" material="target_x" contype="0" conaffinity="0"/>
+      <geom type="box" size="0.04 0.01 0.005" material="target_y" contype="0" conaffinity="0"/>
+      <geom type="box" size="0.005 0.01 0.04" material="target_z" contype="0" conaffinity="0"/>
+    </body>
+  </worldbody>
+</mujoco>
