@@ -63,7 +63,11 @@ def launch_motion_control_analysis(
         )
     layout_path = Path(layout_path)
     layout_path.write_text(
-        build_motion_control_layout(joint_names),
+        build_motion_control_layout(
+            joint_names,
+            csv_path=csv_path,
+            layout_path=layout_path,
+        ),
         encoding="utf-8",
     )
     executable = find_plotjuggler_executable()
@@ -71,8 +75,6 @@ def launch_motion_control_analysis(
         [
             str(executable),
             "-n",
-            "-d",
-            str(csv_path),
             "-l",
             str(layout_path),
         ],
@@ -83,7 +85,12 @@ def launch_motion_control_analysis(
     return csv_path, layout_path
 
 
-def build_motion_control_layout(joint_names: list[str]) -> str:
+def build_motion_control_layout(
+    joint_names: list[str],
+    *,
+    csv_path: str | Path | None = None,
+    layout_path: str | Path | None = None,
+) -> str:
     if not joint_names:
         joint_names = [
             "shoulder_pan",
@@ -97,38 +104,74 @@ def build_motion_control_layout(joint_names: list[str]) -> str:
     tabs = [
         _joint_grid_tab(
             "1_关节位置跟踪",
+            "t01_position",
             joint_names,
             _paired_signal_curves("qpos", "target", (_QPOS_COLOR, _TARGET_COLOR)),
         ),
         _joint_grid_tab(
             "2_跟踪误差",
+            "t02_error",
             joint_names,
             _single_signal_curves("tracking_error"),
         ),
         _joint_grid_tab(
             "3_控制力矩",
+            "t03_torque",
             joint_names,
             _paired_signal_curves("ctrl", "actuator_force", (_CTRL_COLOR, _FORCE_COLOR)),
         ),
         _joint_grid_tab(
             "4_关节速度",
+            "t04_velocity",
             joint_names,
             _single_signal_curves("qvel"),
         ),
         _joint_grid_tab(
             "5_关节力矩反馈",
+            "t05_qfrc",
             joint_names,
             _single_signal_curves("qfrc_actuator"),
         ),
     ]
     tabs_xml = "\n".join(tabs)
+    data_source_xml = ""
+    if csv_path is not None:
+        data_source_xml = _embedded_csv_data_source(
+            csv_path=Path(csv_path),
+            layout_path=Path(layout_path) if layout_path is not None else None,
+        )
     return (
         "<?xml version='1.0' encoding='UTF-8'?>\n"
         "<root>\n"
+        f"{data_source_xml}"
         ' <tabbed_widget parent="main_window" name="Main Window">\n'
         f"{tabs_xml}\n"
         " </tabbed_widget>\n"
         "</root>\n"
+    )
+
+
+def _embedded_csv_data_source(
+    *,
+    csv_path: Path,
+    layout_path: Path | None,
+) -> str:
+    """Embed a single CSV load config so PlotJuggler uses `timestamp` as time axis."""
+    if layout_path is not None:
+        try:
+            csv_ref = csv_path.relative_to(layout_path.parent).as_posix()
+        except ValueError:
+            csv_ref = csv_path.as_posix()
+    else:
+        csv_ref = csv_path.name
+    return (
+        " <previouslyLoaded_Datafiles>\n"
+        f'  <fileInfo filename="{csv_ref}" prefix="">\n'
+        '   <plugin ID="DataLoad CSV">\n'
+        '    <parameters delimiter="0" skip_rows="0" time_axis="timestamp"/>\n'
+        "   </plugin>\n"
+        "  </fileInfo>\n"
+        " </previouslyLoaded_Datafiles>\n"
     )
 
 
@@ -162,8 +205,9 @@ def _plot_xml(curves: list[tuple[str, str]]) -> str:
     )
 
 
-def _dock_area(plot_xml: str, name: str) -> str:
-    return f'     <DockArea name="{_safe_joint_name(name)}">\n{plot_xml}\n     </DockArea>'
+def _dock_area(plot_xml: str, panel_id: str, joint: str) -> str:
+    label = f"{panel_id}__{_safe_joint_name(joint)}"
+    return f'     <DockArea name="{label}">\n{plot_xml}\n     </DockArea>'
 
 
 def _split_sizes(count: int) -> str:
@@ -217,6 +261,7 @@ def _paired_signal_curves(left_suffix: str, right_suffix: str, colors: tuple[str
 
 def _joint_grid_tab(
     tab_name: str,
+    panel_id: str,
     joint_names: list[str],
     curves_for_joint,
 ) -> str:
@@ -226,7 +271,7 @@ def _joint_grid_tab(
             curves = curves_for_joint(joint, index)
         except TypeError:
             curves = curves_for_joint(joint)
-        dock_areas.append(_dock_area(_plot_xml(curves), joint))
+        dock_areas.append(_dock_area(_plot_xml(curves), panel_id, joint))
     grid = _grid_layout(dock_areas)
     return (
         f'  <Tab tab_name="{tab_name}" containers="1">\n'
