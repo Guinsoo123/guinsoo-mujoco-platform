@@ -91,6 +91,25 @@ class MuJoCoRuntime:
             "qfrc_actuator": self.data.qfrc_actuator.copy(),
         }
 
+    def read_sensor(self, name: str) -> np.ndarray:
+        sensor_id = self.mujoco.mj_name2id(
+            self.model, self.mujoco.mjtObj.mjOBJ_SENSOR, name
+        )
+        if sensor_id < 0:
+            raise ValueError(f"unknown sensor: {name}")
+        start = int(self.model.sensor_adr[sensor_id])
+        dim = int(self.model.sensor_dim[sensor_id])
+        return self.data.sensordata[start : start + dim].copy()
+
+    def read_site_wrench(
+        self,
+        force_sensor: str,
+        torque_sensor: str,
+    ) -> np.ndarray:
+        force = self.read_sensor(force_sensor)
+        torque = self.read_sensor(torque_sensor)
+        return np.concatenate([force, torque]).astype(float)
+
     def set_control(self, control: np.ndarray) -> None:
         value = np.asarray(control, dtype=float)
         if value.size > self.data.ctrl.size:
@@ -177,6 +196,25 @@ class MuJoCoRuntime:
             self.geom_id(geom2_name),
             distmax=distmax,
         )
+
+    def has_geom_contact(
+        self,
+        geom1_name: str,
+        geom2_name: str,
+        *,
+        max_distance: float = 0.002,
+    ) -> bool:
+        geom1_id = self.geom_id(geom1_name)
+        geom2_id = self.geom_id(geom2_name)
+        for contact_index in range(int(self.data.ncon)):
+            contact = self.data.contact[contact_index]
+            geom1 = int(contact.geom1)
+            geom2 = int(contact.geom2)
+            if {geom1, geom2} != {geom1_id, geom2_id}:
+                continue
+            if float(contact.dist) <= max_distance:
+                return True
+        return False
 
     def has_contacts(self) -> bool:
         return int(self.data.ncon) > 0

@@ -1,0 +1,70 @@
+<mujoco model="ur5e surface_wipe scene">
+  <include file="ur5e.xml"/>
+
+  <option timestep="0.002" integrator="implicitfast"/>
+
+  <statistic center="0.42 -0.28 0.44" extent="0.7"/>
+
+  <visual>
+    <headlight diffuse="0.6 0.6 0.6" ambient="0.1 0.1 0.1" specular="0 0 0"/>
+    <rgba haze="0.15 0.25 0.35 1"/>
+    <global azimuth="120" elevation="-20"/>
+  </visual>
+
+  <default>
+    <geom solref="0.02 1" solimp="0.9 0.95 0.001"/>
+  </default>
+
+  <asset>
+    <texture type="skybox" builtin="gradient" rgb1="0.3 0.5 0.7" rgb2="0 0 0" width="512" height="3072"/>
+    <texture type="2d" name="groundplane" builtin="checker" mark="edge" rgb1="0.2 0.3 0.4" rgb2="0.1 0.2 0.3"
+      markrgb="0.8 0.8 0.8" width="300" height="300"/>
+    <material name="groundplane" texture="groundplane" texuniform="true" texrepeat="5 5" reflectance="0.2"/>
+    <material name="stand_mat" rgba="0.45 0.45 0.48 1"/>
+    <material name="wave_mat" rgba="0.35 0.65 0.85 1"/>
+    <hfield name="wave_hfield" nrow="3" ncol="51" size="0.15 0.12 0.015 0.001"
+      elevation="0.982963 0.919335 0.814660 0.679184 0.526168 0.370590 0.227680 0.111427 0.033210 0.000685 0.017037 0.080665 0.185340 0.320816 0.473832 0.629410 0.772320 0.888573 0.966790 0.999315 0.982963 0.919335 0.814660 0.679184 0.526168 0.370590 0.227680 0.111427 0.033210 0.000685 0.017037 0.080665 0.185340 0.320816 0.473832 0.629410 0.772320 0.888573 0.966790 0.999315 0.982963 0.919335 0.814660 0.679184 0.526168 0.370590 0.227680 0.111427 0.033210 0.000685 0.017037 0.982963 0.919335 0.814660 0.679184 0.526168 0.370590 0.227680 0.111427 0.033210 0.000685 0.017037 0.080665 0.185340 0.320816 0.473832 0.629410 0.772320 0.888573 0.966790 0.999315 0.982963 0.919335 0.814660 0.679184 0.526168 0.370590 0.227680 0.111427 0.033210 0.000685 0.017037 0.080665 0.185340 0.320816 0.473832 0.629410 0.772320 0.888573 0.966790 0.999315 0.982963 0.919335 0.814660 0.679184 0.526168 0.370590 0.227680 0.111427 0.033210 0.000685 0.017037 0.982963 0.919335 0.814660 0.679184 0.526168 0.370590 0.227680 0.111427 0.033210 0.000685 0.017037 0.080665 0.185340 0.320816 0.473832 0.629410 0.772320 0.888573 0.966790 0.999315 0.982963 0.919335 0.814660 0.679184 0.526168 0.370590 0.227680 0.111427 0.033210 0.000685 0.017037 0.080665 0.185340 0.320816 0.473832 0.629410 0.772320 0.888573 0.966790 0.999315 0.982963 0.919335 0.814660 0.679184 0.526168 0.370590 0.227680 0.111427 0.033210 0.000685 0.017037"/>
+  </asset>
+
+  <worldbody>
+    <light pos="0 0 2" dir="0 0 -1" directional="true"/>
+    <geom name="floor" size="0 0 0.05" type="plane" material="groundplane"/>
+
+    <!-- 窄支架：仅支撑波浪面，远离机械臂一侧，纯视觉不参与碰撞 -->
+    <body name="wave_stand" pos="0.425 -0.28 0.31">
+      <geom name="stand_plate" type="box" size="0.14 0.10 0.006" material="stand_mat"
+        contype="0" conaffinity="0"/>
+      <geom name="stand_leg_a" type="box" pos="0.11 0.0 -0.04" size="0.018 0.035 0.04"
+        material="stand_mat" contype="0" conaffinity="0"/>
+      <geom name="stand_leg_b" type="box" pos="0.11 0.07 -0.04" size="0.018 0.018 0.04"
+        material="stand_mat" contype="0" conaffinity="0"/>
+      <geom name="stand_leg_c" type="box" pos="0.11 -0.07 -0.04" size="0.018 0.018 0.04"
+        material="stand_mat" contype="0" conaffinity="0"/>
+    </body>
+
+    <body name="wave_surface" pos="0.425 -0.28 0.3525">
+      <geom name="wave" type="hfield" hfield="wave_hfield" material="wave_mat"
+        contype="1" conaffinity="1" solref="0.08 1" solimp="0.92 0.95 0.001"/>
+    </body>
+
+    <body mocap="true" name="wipe_start" pos="0.30 -0.28 0.38">
+      <geom type="sphere" size="0.012" rgba="0.2 1 0.2 0.8" contype="0" conaffinity="0"/>
+    </body>
+    <body mocap="true" name="wipe_end" pos="0.55 -0.28 0.38">
+      <geom type="sphere" size="0.012" rgba="1 0.2 0.2 0.8" contype="0" conaffinity="0"/>
+    </body>
+  </worldbody>
+
+  <contact>
+    <exclude body1="shoulder_link" body2="wave_surface"/>
+    <exclude body1="upper_arm_link" body2="wave_surface"/>
+    <exclude body1="forearm_link" body2="wave_surface"/>
+    <exclude body1="wrist_1_link" body2="wave_surface"/>
+    <exclude body1="wrist_2_link" body2="wave_surface"/>
+  </contact>
+
+  <sensor>
+    <force name="tool_force" site="attachment_site"/>
+    <torque name="tool_torque" site="attachment_site"/>
+  </sensor>
+</mujoco>

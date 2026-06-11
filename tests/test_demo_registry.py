@@ -13,6 +13,7 @@ def test_demo_registry_lists_ur5e_demos():
     assert "joint_position" in demo_ids
     assert "ik_reach" in demo_ids
     assert "ee_pose_avoid" in demo_ids
+    assert "surface_wipe" in demo_ids
 
 
 def test_ee_pose_avoid_spec_has_documentation():

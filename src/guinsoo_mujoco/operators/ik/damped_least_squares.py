@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 from guinsoo_mujoco.operators.collision import CollisionModel, is_configuration_colliding
+from guinsoo_mujoco.operators.path.joint_unwrap import shortest_joint_delta
 
 if TYPE_CHECKING:
     from guinsoo_mujoco.runtime import MuJoCoRuntime
@@ -19,6 +20,7 @@ class IkOptions:
     orientation_tol: float = 0.05
     damping: float = 0.05
     collision_model: CollisionModel | None = None
+    position_only: bool = False
 
 
 def _orientation_error(current: np.ndarray, target: np.ndarray) -> np.ndarray:
@@ -77,19 +79,24 @@ def solve_ik(
         ori_err = _orientation_error(rot, target_rot)
         pos_norm = float(np.linalg.norm(pos_err))
         ori_norm = float(np.linalg.norm(ori_err))
-        total_error = pos_norm + ori_norm
+        total_error = pos_norm if options.position_only else pos_norm + ori_norm
         if total_error < best_error:
             best_error = total_error
             best_q = q.copy()
-        if pos_norm < options.position_tol and ori_norm < options.orientation_tol:
+        orientation_ok = options.position_only or ori_norm < options.orientation_tol
+        if pos_norm < options.position_tol and orientation_ok:
             if not _is_colliding(runtime, q, collision_model):
                 return q.copy(), total_error
             break
 
         jac = runtime.site_jacobian(options.site_name)
-        error = np.concatenate([pos_err, ori_err])
+        if options.position_only:
+            error = pos_err
+            jac = jac[:3, :]
+        else:
+            error = np.concatenate([pos_err, ori_err])
         jj_t = jac @ jac.T
-        damped = jj_t + (options.damping**2) * np.eye(6)
+        damped = jj_t + (options.damping**2) * np.eye(jj_t.shape[0])
         dq = jac.T @ np.linalg.solve(damped, error)
         q = _clip_to_limits(q + dq, low, high)
 
@@ -98,6 +105,60 @@ def solve_ik(
     if _is_colliding(runtime, best_q, collision_model):
         return None, best_error
     return best_q, best_error
+
+
+def _achieved_pose_error(
+    runtime: MuJoCoRuntime,
+    q: np.ndarray,
+    target_pos: np.ndarray,
+    target_rot: np.ndarray,
+    options: IkOptions,
+    *,
+    site_name: str,
+) -> tuple[float, float]:
+    runtime.forward(q)
+    pos, rot = runtime.site_pose(site_name)
+    pos_err = float(np.linalg.norm(pos - target_pos))
+    if options.position_only:
+        return pos_err, 0.0
+    orient_err = float(
+        np.arccos(np.clip(float(np.dot(rot[:, 2], target_rot[:, 2])), -1.0, 1.0))
+    )
+    return pos_err, orient_err
+
+
+def solve_ik_nearest(
+    runtime: MuJoCoRuntime,
+    target_pos: np.ndarray,
+    target_rot: np.ndarray,
+    q_current: np.ndarray,
+    options: IkOptions,
+    *,
+    fallback_seeds: tuple[np.ndarray, ...] = (),
+) -> np.ndarray | None:
+    """Prefer IK solutions close to q_current to avoid 2pi branch jumps."""
+    candidates: list[np.ndarray] = []
+    for seed in (q_current, *fallback_seeds):
+        solution, _error = solve_ik(runtime, target_pos, target_rot, seed, options)
+        if solution is None:
+            continue
+        pos_err, orient_err = _achieved_pose_error(
+            runtime,
+            solution,
+            target_pos,
+            target_rot,
+            options,
+            site_name=options.site_name,
+        )
+        orientation_ok = options.position_only or orient_err <= options.orientation_tol * 2.0
+        if pos_err <= options.position_tol * 2.5 and orientation_ok:
+            candidates.append(solution)
+    if not candidates:
+        return None
+    return min(
+        candidates,
+        key=lambda q: float(np.linalg.norm(shortest_joint_delta(q_current, q))),
+    )
 
 
 def solve_ik_multi_seed(

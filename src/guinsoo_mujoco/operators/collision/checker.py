@@ -25,9 +25,19 @@ def robot_collision_geom_ids(
     for geom_index in range(runtime.model.ngeom):
         if int(runtime.model.geom_contype[geom_index]) == 0:
             continue
+        geom_name = runtime.mujoco.mj_id2name(
+            runtime.model, runtime.mujoco.mjtObj.mjOBJ_GEOM, geom_index
+        )
+        if geom_name in model.ignore_robot_geom_names:
+            continue
         body_id = int(runtime.model.geom_bodyid[geom_index])
-        if _body_name(runtime, body_id) in model.robot_body_names:
-            ids.append(geom_index)
+        body_name = _body_name(runtime, body_id)
+        if model.collision_body_names is not None:
+            if body_name not in model.collision_body_names:
+                continue
+        elif body_name not in model.robot_body_names:
+            continue
+        ids.append(geom_index)
     return tuple(ids)
 
 

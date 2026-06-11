@@ -5,6 +5,7 @@ from guinsoo_mujoco.demos.openarm.preview_motion import create_preview_motion_sp
 from guinsoo_mujoco.demos.ur5e.ee_pose_avoid import create_ee_pose_avoid_spec
 from guinsoo_mujoco.demos.ur5e.ik_reach import create_ik_reach_spec
 from guinsoo_mujoco.demos.ur5e.joint_position import create_joint_position_spec
+from guinsoo_mujoco.demos.ur5e.surface_wipe import create_surface_wipe_spec
 from guinsoo_mujoco.demos.xlerobot.preview_motion import create_xlerobot_preview_motion_spec
 
 
@@ -40,6 +41,7 @@ def create_demo_registry() -> DemoRegistry:
     registry.register(create_joint_position_spec())
     registry.register(create_ik_reach_spec())
     registry.register(create_ee_pose_avoid_spec())
+    registry.register(create_surface_wipe_spec())
     registry.register(create_preview_motion_spec())
     registry.register(create_xlerobot_preview_motion_spec())
     return registry

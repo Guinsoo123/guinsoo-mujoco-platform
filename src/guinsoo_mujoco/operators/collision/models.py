@@ -12,3 +12,5 @@ class CollisionModel:
     obstacle_geom_names: tuple[str, ...]
     margin: float = 0.03
     ignore_geom_names: tuple[str, ...] = ("floor",)
+    ignore_robot_geom_names: tuple[str, ...] = ()
+    collision_body_names: frozenset[str] | None = None

@@ -236,8 +236,11 @@ def build_plotjuggler_columns(episode: Episode) -> dict[str, list[float]]:
         ).astype(float).tolist()
 
     for sensor_name, values in episode.sensors.items():
-        if values.ndim == 1:
-            columns[f"sensor/{sensor_name}"] = values.astype(float).tolist()
+        array = np.asarray(values, dtype=float)
+        if array.ndim == 1:
+            columns[f"sensor/{sensor_name}"] = array.astype(float).tolist()
+        elif array.ndim == 2 and array.shape[1] == 1:
+            columns[f"sensor/{sensor_name}"] = array[:, 0].astype(float).tolist()
         else:
             width = values.shape[1]
             for index in range(width):

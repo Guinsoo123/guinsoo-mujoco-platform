@@ -48,6 +48,26 @@ def append_step_sample(recorder: RunRecorder, runtime: MuJoCoRuntime, sample: di
     sensors = {
         "control_command": np.asarray(sample.get("control", telemetry["ctrl"]), dtype=float),
     }
+    for key in (
+        "wrench_tool",
+        "force_normal",
+        "force_des",
+        "admittance_dn",
+        "path_s",
+        "ee_pos_error",
+        "ee_orient_error",
+        "ee_signed_standoff",
+        "tool_contact",
+    ):
+        if key not in sample:
+            continue
+        value = sample[key]
+        if isinstance(value, (int, float, np.floating)):
+            sensors[key] = np.array(float(value), dtype=float)
+        elif np.asarray(value).ndim == 0:
+            sensors[key] = np.asarray(value, dtype=float)
+        else:
+            sensors[key] = np.asarray(value, dtype=float)
     recorder.append(
         t=float(sample.get("time", telemetry["time"])),
         qpos=telemetry["qpos"],
