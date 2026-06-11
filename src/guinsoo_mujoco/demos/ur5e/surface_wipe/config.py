@@ -26,6 +26,9 @@ WIPE_IK_SEED = np.array(
 )
 
 APPROACH_REACH_TOL = 0.02
+APPROACH_DURATION = 3.0
+MIN_NORMAL_OFFSET = 0.003
+MAX_JOINT_STEP = 0.025
 
 EE_SITE = "attachment_site"
 WAVE_GEOM = "wave"
@@ -67,22 +70,23 @@ SURFACE = SineSheetSurface(
 WIPE_LENGTH = 0.25
 TANGENTIAL_SPEED = 0.025
 
-PRE_CONTACT_OFFSET = 0.12
+PRE_CONTACT_OFFSET = 0.04
 CONTACT_STANDOFF = 0.005
 CONTACT_FORCE_THRESHOLD = 2.0
-MAX_CONTACT_FORCE = 40.0
-DESCEND_SPEED = 0.004
+MAX_CONTACT_FORCE = 80.0
+DESCEND_SPEED = 0.02
 RETRACT_SPEED = 0.02
 RETRACT_DISTANCE = 0.05
-MIN_DESCEND_TIME = 0.4
+MIN_DESCEND_TIME = 0.2
+DESCEND_STANDOFF_TOL = 0.001
 
 ADMITTANCE = NormalAdmittance(
     mass=2.0,
-    damping=120.0,
+    damping=200.0,
     stiffness=0.0,
     force_des=8.0,
-    d_n_limit=0.012,
-    force_lpf_alpha=0.12,
+    d_n_limit=0.025,
+    force_lpf_alpha=0.08,
 )
 
 COLLISION_MODEL = CollisionModel(
@@ -111,5 +115,16 @@ APPROACH_IK_TOLERANCE = IkOptions(
     orientation_tol=0.12,
     damping=0.06,
     collision_model=COLLISION_MODEL,
+    position_only=False,
+)
+
+# Top-down wipe pose is far from PREP_QPOS in joint space; seed from wipe workspace.
+APPROACH_IK_FALLBACK = IkOptions(
+    site_name=EE_SITE,
+    max_iterations=120,
+    position_tol=0.005,
+    orientation_tol=0.12,
+    damping=0.06,
+    collision_model=None,
     position_only=False,
 )

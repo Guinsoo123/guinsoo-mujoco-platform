@@ -51,6 +51,7 @@ def append_step_sample(recorder: RunRecorder, runtime: MuJoCoRuntime, sample: di
     for key in (
         "wrench_tool",
         "force_normal",
+        "force_normal_raw",
         "force_des",
         "admittance_dn",
         "path_s",

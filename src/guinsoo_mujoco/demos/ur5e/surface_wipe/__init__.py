@@ -4,6 +4,7 @@ from pathlib import Path
 
 from guinsoo_mujoco.demos.base import DemoSpec
 from guinsoo_mujoco.demos.ur5e.surface_wipe.controller import SurfaceWipeController
+from guinsoo_mujoco.demos.ur5e.surface_wipe.scene_vars import surface_wipe_scene_template_vars
 from guinsoo_mujoco.runtime import MuJoCoRuntime
 
 _PACKAGE_DIR = Path(__file__).resolve().parent
@@ -23,4 +24,5 @@ def create_surface_wipe_spec() -> DemoSpec:
         doc_path="DESIGN.md",
         manifest_entrypoint=None,
         create_controller=lambda runtime: SurfaceWipeController(runtime),
+        scene_template_vars=surface_wipe_scene_template_vars,
     )

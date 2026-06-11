@@ -14,7 +14,11 @@ from guinsoo_mujoco.operators.control import (
 from guinsoo_mujoco.operators.ik import IkOptions, solve_ik, solve_ik_multi_seed
 from guinsoo_mujoco.operators.path import JointPathTracker, densify_path, snap_path_start
 from guinsoo_mujoco.operators.rrt import RRTConnectPlanner
-from guinsoo_mujoco.operators.surface import SineSheetSurface
+from guinsoo_mujoco.operators.surface import (
+    SineSheetHfield,
+    SineSheetSurface,
+    build_sine_sheet_hfield,
+)
 
 __all__ = [
     "CollisionModel",
@@ -25,7 +29,9 @@ __all__ = [
     "NormalAdmittanceState",
     "RRTConnectPlanner",
     "ReachMotionController",
+    "SineSheetHfield",
     "SineSheetSurface",
+    "build_sine_sheet_hfield",
     "default_joint_target",
     "densify_path",
     "is_configuration_colliding",

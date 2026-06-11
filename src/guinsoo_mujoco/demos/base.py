@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Protocol
+from typing import Callable, Mapping, Protocol
 
 from guinsoo_mujoco.assets import (
     AssetManifest,
@@ -29,6 +29,7 @@ class DemoSpec:
     doc_path: str | None
     manifest_entrypoint: str | None
     create_controller: ControllerFactory
+    scene_template_vars: Callable[[], Mapping[str, str]] | None = None
 
     def documentation_path(self) -> Path | None:
         if self.doc_path is None or self.package_dir is None:
@@ -52,6 +53,9 @@ class DemoSpec:
                 template.replace("{{UR5E_DIR}}", str(asset_dir))
                 .replace("{{ROBOT_DIR}}", str(asset_dir))
             )
+            if self.scene_template_vars is not None:
+                for key, value in self.scene_template_vars().items():
+                    rendered = rendered.replace(f"{{{{{key}}}}}", value)
             # Write beside ur5e.xml so relative <include file="ur5e.xml"/> and
             # meshdir="assets" inside Menagerie resolve like the stock scene.
             scene_path = asset_dir / f"guinsoo_{self.demo_id}_scene.xml"

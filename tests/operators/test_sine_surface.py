@@ -36,7 +36,7 @@ def test_sine_surface_position_follows_path_parameter():
     assert p1[2] != p0[2]
 
 
-def test_sine_surface_orientation_has_tool_z_along_surface_normal():
+def test_sine_surface_orientation_has_tool_z_pointing_into_surface():
     surface = SineSheetSurface(
         x0=0.4,
         y0=0.0,
@@ -47,4 +47,5 @@ def test_sine_surface_orientation_has_tool_z_along_surface_normal():
     rot = surface.orientation(0.08)
     n = surface.normal(0.08)
     tool_z = rot[:, 2]
-    np.testing.assert_allclose(tool_z, n, atol=1e-6)
+    np.testing.assert_allclose(tool_z, -n, atol=1e-6)
+    assert float(np.linalg.det(rot)) == pytest.approx(1.0, abs=1e-6)

@@ -49,9 +49,10 @@ class SineSheetSurface:
         return _normalize(np.array([1.0, 0.0, dz_dx], dtype=float))
 
     def orientation(self, s: float) -> np.ndarray:
-        """Rotation matrix for attachment_site: +Z aligned to surface outward normal."""
+        """Rotation matrix for attachment_site: +Z points into the surface (-n)."""
         n = self.normal(s)
+        tool_z = -n
         t = self.tangent(s)
-        y_axis = _normalize(np.cross(n, t))
-        t_axis = _normalize(np.cross(y_axis, n))
-        return np.column_stack([t_axis, y_axis, n])
+        y_axis = _normalize(np.cross(tool_z, t))
+        t_axis = _normalize(np.cross(y_axis, tool_z))
+        return np.column_stack([t_axis, y_axis, tool_z])

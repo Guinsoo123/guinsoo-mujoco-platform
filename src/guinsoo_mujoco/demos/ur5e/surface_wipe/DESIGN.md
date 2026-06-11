@@ -1,15 +1,59 @@
 # UR5e 曲面擦拭 Demo（法向导纳 + 切向轨迹）
 
-## 目标
+## 场景与目标
 
-在正弦波浪面上沿 **+X** 方向擦拭，同时通过 **法向二阶导纳** 维持约恒定的接触力。
+在正弦波浪面上沿 **+X** 方向擦拭，末端 `attachment_site` 的 **+Z 轴**压向曲面（与外法向 `n` 相反，即 `-n`），并通过 **法向二阶导纳** 维持约恒定接触力。
+
+| 项目 | 说明 |
+|------|------|
+| 机器人 | Menagerie UR5e |
+| 末端 site | `attachment_site` |
+| 力传感器 | `tool_force` / `tool_torque` @ `attachment_site` |
+| 擦拭路径 | `s ∈ [0, WIPE_LENGTH]`，世界系 X 从 `x0` 到 `x0 + WIPE_LENGTH` |
+| 曲面模型 | `SineSheetSurface`：\(z(x) = z_0 + A\sin(2\pi x/\lambda)\) |
+
+路径起止 mocap 标记：`wipe_start`（绿）、`wipe_end`（红）。
+
+## 依赖算子
+
+| 算子 | 包路径 | 用途 |
+|------|--------|------|
+| 正弦曲面 | `operators.surface.SineSheetSurface` | 参考位姿、法向、切向 |
+| hfield 生成 | `operators.surface.build_sine_sheet_hfield` | 从解析曲面生成 MuJoCo 碰撞几何 |
+| 法向导纳 | `operators.admittance.NormalAdmittance` | 法向恒力控制 |
+| 力投影 | `operators.admittance.project_force_on_normal` | 世界系力 → 法向标量 |
+| 数值 IK | `operators.ik.solve_ik_nearest` | 内环位姿跟踪 |
+| 关节展开 | `operators.path.unwrap_joint_target` | 最短角关节目标 |
+| 执行器映射 | `operators.path.actuator_joint_target` | Menagerie 位置伺服 `ctrl` 分支选择 |
+
+## Demo 流程
+
+```mermaid
+stateDiagram-v2
+    [*] --> APPROACH
+    APPROACH --> DESCEND: IK到达起点上方
+    DESCEND --> FOLLOW: 接触建立
+    FOLLOW --> RETRACT: path_s到达终点
+    RETRACT --> DONE: 抬离完成
+    DONE --> [*]
+```
+
+| 阶段 | 行为 | 进入条件 | 退出条件 |
+|------|------|----------|----------|
+| APPROACH | 关节空间 blend（3 s）从 `PREP_QPOS` 到接近 IK 目标 | `reset` | `approach_alpha` 达到 1.0 |
+| DESCEND | 沿 `-n` 下降 | APPROACH 完成 | `MIN_DESCEND_TIME` 且 `tool_contact` 且 `ee_signed_standoff ≤ CONTACT_STANDOFF + tol` |
+| FOLLOW | 切向推进 + 法向导纳 | DESCEND 完成 | `path_s ≥ WIPE_LENGTH` |
+| RETRACT | 沿 `+n` 抬离 | FOLLOW 完成 | 抬离距离 ≥ `RETRACT_DISTANCE` |
+| DONE | 保持当前关节 | RETRACT 完成 | — |
+
+实现见 [`workflow.py`](workflow.py)（`Phase`）与 [`controller.py`](controller.py)。
 
 ## 控制结构
 
 ```text
-切向：s += v_t * dt，参考点 p_ref(s) 来自 SineSheetSurface
-法向：F_n → 导纳(M,B,K) → d_n → p_d = p_ref + (standoff + d_n) * n
-内环：IK(attachment_site) → actuator_joint_target → ctrl
+切向：path_s += v_t * dt，参考点 p_ref(s) 来自 SineSheetSurface
+法向：F_n_raw → 导纳(M,B,K) → d_n → p_d = p_ref + (standoff + d_n) * n
+内环：IK(attachment_site) → unwrap_joint_target → actuator_joint_target → ctrl
 ```
 
 法向动力学：
@@ -18,52 +62,148 @@
 M \ddot{d}_n + B \dot{d}_n + K d_n = F_n - F_{des}
 \]
 
-## 场景
+```mermaid
+flowchart LR
+    pathS[path_s切向推进] --> poseRef[解析曲面位姿]
+    wrench[力传感器] --> fnRaw[F_n_raw]
+    fnRaw --> adm[NormalAdmittance]
+    adm --> offset[normal_offset]
+    poseRef --> ik[IK]
+    offset --> ik
+    ik --> ctrl[actuator ctrl]
+```
 
-- 波浪面：`hfield` 近似 \(z = z_0 + A\sin(2\pi x/\lambda)\)
-- 力传感器：`tool_force` / `tool_torque` @ `attachment_site`
-- 路径：\(s \in [0, 0.25]\) m，\(x\) 从 0.30 到 0.55
+## 场景几何（单一数据源）
 
-## FSM
+**解析曲面 `SineSheetSurface` 是控制与碰撞的唯一数据源。**
 
-| 阶段 | 行为 |
+渲染 scene 时，[`scene_vars.py`](scene_vars.py) 调用 `build_sine_sheet_hfield` 生成：
+
+| 输出 | 用途 |
 |------|------|
-| APPROACH | IK 到路径起点上方 |
-| DESCEND | 沿 -n 下降直至接触力阈值 |
-| FOLLOW | 切向推进 + 法向导纳 |
-| RETRACT | 沿 +n 抬离 |
-| DONE | 保持 |
+| `elevation` | `hfield` 高度网格（列优先：每列 `nrow` 个 y 采样） |
+| `size` | `(sx, sy, height, base)` 半宽与高度范围 |
+| `body_pos` | `wave_surface` 刚体位姿 |
 
-## 默认参数（config.py）
+世界系高度：`z_world = body_z + base + elevation * height`，与 `SineSheetSurface.height(x)` 在擦拭路径上偏差 < 2 mm。
 
-| 参数 | 值 |
-|------|-----|
-| F_des | 15 N |
-| M, B, K | 1, 80, 0 |
-| v_t | 0.05 m/s |
-| WIPE_LENGTH | 0.25 m |
-| amplitude / wavelength | 0.015 m / 0.12 m |
+[`scene.xml`](scene.xml) 使用占位符 `{{HFIELD_*}}`、`{{WAVE_BODY_POS}}` 等，由 [`demos/base.py`](../../../demos/base.py) 的 `scene_template_vars` 注入。
 
-## Sim Studio 验收
+## 力感知链路
 
-1. 选择 **UR5e → 曲面擦拭 (导纳)**
-2. 运行并开始记录
-3. 观察末端沿波浪面 +X 移动并贴附
-4. episode 中检查 `sensor/path_s` 增至 0.25，`sensor/force_normal` 在 F_des 附近
+1. 读取 `tool_force` / `tool_torque`（**site 坐标系**）
+2. `force_world = R_site @ force_site`
+3. `F_n_raw = |(force_world · n_hat)|`（接触力模长沿法向，避免传感器符号歧义）
+4. 导纳使用 **`F_n_raw`（未截断）**
+5. 日志/安全字段 `force_normal` 截断到 `[0, MAX_CONTACT_FORCE]`
 
-## 实现说明
+## 碰撞与接触策略
 
-- 力传感器读数为 **site 坐标系**，控制器变换到世界系后取 **压向曲面为正** 的法向力
-- 工作台 `table` 已移除；波浪面由 **`wave_stand` 窄支架**（纯视觉）支撑，不占用机械臂工作空间
-- `<contact><exclude>` 禁止肩/前臂等与波浪面碰撞，仅腕部 `eef_collision` 可接触
-- HOME 构型由 IK 预解至路径起点上方，保证 APPROACH 一步到位
-- `attachment_site` 的 **+Z 轴** 与曲面法向 `n` 对齐（Menagerie 工具坐标约定）
-- FOLLOW 使用 **6DoF IK**（`position_only=False`），姿态误差通常 < 1°
-- 法向导纳偏移 + 切向 `path_s` 在 IK 成功时匀速推进
-- episode 标量传感器（`path_s`、`force_normal` 等）导出为 `sensor/<name>` 单列
+| 策略 | 说明 |
+|------|------|
+| `<contact><exclude>` | `shoulder_link` … `wrist_2_link` 与 `wave_surface` 不碰撞 |
+| 可接触 | `wrist_3_link` / `eef_collision` 与 `wave` hfield |
+| 视觉支架 | `wave_stand` 纯视觉（`contype=0`） |
+| IK 碰撞 | FOLLOW 阶段 `IK_OPTIONS.collision_model=None`（臂杆已 exclude） |
+
+**已知限制**：臂杆与波浪面无碰撞，仿真中臂杆可能视觉上穿过曲面；这是为 IK 可达性做的简化，非真实物理。
+
+## 关节连续性策略
+
+每步 IK 输出经：
+
+1. `unwrap_joint_target(qpos, q_ref)` — 最短角关节增量
+2. `actuator_joint_target(qpos, q_unwrapped, limits)` — 选择距当前 `qpos` 最近的 `2π` 分支
+
+与 [`ee_pose_avoid`](../ee_pose_avoid/DESIGN.md) 相同防护链，避免 Menagerie 位置伺服在 `ctrl` 上产生 \(2\pi\) 突跳。
+
+## 参数表（与 config.py 同步）
+
+| 参数 | 值 | 说明 |
+|------|-----|------|
+| `SURFACE.x0, y0, z0` | 0.30, -0.28, 0.36 | 路径起点世界坐标 |
+| `amplitude, wavelength` | 0.015 m, 0.12 m | 正弦波幅值与波长 |
+| `WIPE_LENGTH` | 0.25 m | 切向路径长度 |
+| `TANGENTIAL_SPEED` | 0.025 m/s | 切向推进速度 |
+| `PRE_CONTACT_OFFSET` | 0.04 m | 接近/下降起始法向偏移 |
+| `APPROACH_DURATION` | 3.0 s | 接近阶段关节 blend 时长 |
+| `MAX_JOINT_STEP` | 0.025 rad | 每步最大关节增量（防跳变） |
+| `MIN_NORMAL_OFFSET` | 0.003 m | 法向参考最低间隙（防穿模） |
+| `CONTACT_STANDOFF` | 0.005 m | 期望法向间隙 |
+| `MAX_CONTACT_FORCE` | 80.0 N | 日志/安全截断上限 |
+| `DESCEND_SPEED` | 0.02 m/s | 下降速度 |
+| `MIN_DESCEND_TIME` | 0.2 s | 最短下降时间 |
+| `DESCEND_STANDOFF_TOL` | 0.001 m | standoff 接触判据容差 |
+| `ADMITTANCE.mass` | 2.0 | 法向虚拟质量 |
+| `ADMITTANCE.damping` | 200.0 | 法向阻尼 |
+| `ADMITTANCE.stiffness` | 0.0 | 法向刚度 |
+| `ADMITTANCE.force_des` | 8.0 N | 期望法向力 |
+| `ADMITTANCE.d_n_limit` | 0.025 m | 导纳偏移限幅 |
+| `ADMITTANCE.force_lpf_alpha` | 0.08 | 力低通系数 |
+
+## 遥测字段说明
+
+| 字段 | 含义 |
+|------|------|
+| `ee_pos_error` | \(\|ee - p_{ref}(s)\|\)，**不含** `normal_offset`；APPROACH/DESCEND 阶段偏大属正常 |
+| `ee_signed_standoff` | \((ee - p_{ref}) \cdot n\)，法向间隙（首选跟踪指标） |
+| `ee_orient_error` | 工具 Z 轴与压向曲面方向（`-n`）夹角 |
+| `force_normal_raw` | 导纳用真实法向力 |
+| `force_normal` | 截断后的安全/日志力 |
+| `admittance_dn` | 导纳法向偏移 \(d_n\) |
+| `path_s` | 切向路径参数 |
+
+## 可行性评估与已修复问题
+
+| 维度 | 评估 |
+|------|------|
+| 框架/FSM | 正确，全链路可达 `DONE` |
+| 法向导纳算子 | 正确 |
+| 姿态压向对齐（+Z ∥ -n） | FOLLOW 阶段典型 < 6° |
+| 关节 2π 跳变 | 低风险（`unwrap` + `actuator_joint_target`） |
+| 曲面几何 | **已修复**：hfield 由 `SineSheetSurface` 自动生成 |
+| 力控 | **已改进**：导纳使用 `F_n_raw`；Menagerie 位置伺服较硬，实际接触力常高于 `F_des`，导纳通过 `d_n` 调节间隙 |
+| 下降阶段 | **已优化**：更小 `PRE_CONTACT_OFFSET`、更快 `DESCEND_SPEED`、standoff 判据 |
+
+## 量化验收标准
+
+1. hfield vs 解析面：擦拭路径任意点 \|Δz\| < 2 mm
+2. DESCEND 耗时 < 5 s
+3. FOLLOW：`force_normal_raw` 中位数 > 5 N（接触力有效），且存在波动（`std > 1 N`）
+4. 接触建立段最大单步 \|Δq\| < 6°（0.10 rad）
+5. `path_s` 到达 `WIPE_LENGTH`
 
 ## 调参建议
 
-- 力偏低：略增 `F_des` 或减小 `CONTACT_STANDOFF`
+- 力偏低：略增 `force_des` 或减小 `CONTACT_STANDOFF`
 - 力控振荡：增大 `damping`、降低 `force_lpf_alpha`、检查 wave `solref`
-- 贴附不足：降低 `TANGENTIAL_SPEED`，检查 `ee_pos_error` 是否 < 1 cm
+- 贴附不足：降低 `TANGENTIAL_SPEED`，检查 `ee_signed_standoff` 与 `ee_orient_error`
+- 下降太慢：增大 `DESCEND_SPEED` 或减小 `PRE_CONTACT_OFFSET`
+- 接触抖动：检查 `DESCEND_STANDOFF_TOL` 与 `CONTACT_STANDOFF`
+
+## 文件映射
+
+| 文件 | 职责 |
+|------|------|
+| `config.py` | 曲面、导纳、IK、阶段参数 |
+| `scene_vars.py` | scene 模板变量（hfield 生成） |
+| `scene.xml` | MJCF 模板（占位符） |
+| `workflow.py` | `Phase` 枚举 |
+| `controller.py` | FSM + 导纳 + IK 控制循环 |
+| `__init__.py` | `DemoSpec` 注册 |
+
+## 运行与验证
+
+```bash
+conda activate robot_dev
+cd /path/to/guinsoo-mujoco-platform
+python -m guinsoo_mujoco.cli fetch-assets ur5e
+python -m pytest tests/demos/ur5e/test_surface_wipe_controller.py \
+  tests/operators/test_sine_surface.py \
+  tests/operators/test_sine_hfield.py \
+  tests/operators/test_normal_admittance.py -v
+guinsoo-sim-studio
+# 选择 UR5e → 曲面擦拭 (导纳) → 运行并记录
+```
+
+PlotJuggler 关注：`sensor/path_s`、`sensor/force_normal_raw`、`sensor/ee_signed_standoff`、`sensor/ee_orient_error`。
