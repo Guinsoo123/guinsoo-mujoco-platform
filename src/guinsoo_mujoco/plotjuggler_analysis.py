@@ -132,6 +132,22 @@ def build_motion_control_layout(
             joint_names,
             _single_signal_curves("qfrc_actuator"),
         ),
+        _sensor_tab(
+            "6_导纳与末端误差",
+            "t06_admittance",
+            (
+                ("sensor/ee_pose_error", _SINGLE_COLORS[0]),
+                ("sensor/ee_normal_error", _SINGLE_COLORS[1]),
+                ("sensor/ee_tangential_error", _SINGLE_COLORS[2]),
+                ("sensor/ee_orient_error", _SINGLE_COLORS[3]),
+                ("sensor/ee_signed_standoff", _SINGLE_COLORS[4]),
+                ("sensor/admittance_dn", _SINGLE_COLORS[5]),
+                ("sensor/force_normal_raw", _FORCE_COLOR),
+                ("sensor/force_des", "#17becf"),
+                ("sensor/path_s", "#bcbd22"),
+                ("sensor/phase_code", "#7f7f7f"),
+            ),
+        ),
     ]
     tabs_xml = "\n".join(tabs)
     data_source_xml = ""
@@ -257,6 +273,24 @@ def _paired_signal_curves(left_suffix: str, right_suffix: str, colors: tuple[str
         ]
 
     return builder
+
+
+def _sensor_tab(
+    tab_name: str,
+    panel_id: str,
+    signals: tuple[tuple[str, str], ...],
+) -> str:
+    curves = [(name, color) for name, color in signals]
+    plot_xml = _plot_xml(curves)
+    return (
+        f'  <Tab tab_name="{tab_name}" containers="1">\n'
+        "   <Container numdock=\"1\">\n"
+        f'    <DockSplitter orientation="-" count="1" sizes="1.000000">\n'
+        f'     <DockArea name="{panel_id}">\n{plot_xml}\n     </DockArea>\n'
+        "    </DockSplitter>\n"
+        "   </Container>\n"
+        "  </Tab>"
+    )
 
 
 def _joint_grid_tab(

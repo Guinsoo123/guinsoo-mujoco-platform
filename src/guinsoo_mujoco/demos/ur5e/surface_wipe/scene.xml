@@ -3,7 +3,7 @@
 
   <option timestep="0.002" integrator="implicitfast"/>
 
-  <statistic center="0.42 -0.28 0.44" extent="0.7"/>
+  <statistic center="0.44 -0.26 0.42" extent="0.65"/>
 
   <visual>
     <headlight diffuse="0.6 0.6 0.6" ambient="0.1 0.1 0.1" specular="0 0 0"/>
@@ -67,4 +67,8 @@
     <force name="tool_force" site="attachment_site"/>
     <torque name="tool_torque" site="attachment_site"/>
   </sensor>
+
+  <keyframe>
+    <key name="wipe_ready" qpos="{{START_QPOS}}" ctrl="{{START_QPOS}}"/>
+  </keyframe>
 </mujoco>

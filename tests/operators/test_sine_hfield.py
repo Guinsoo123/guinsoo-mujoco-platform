@@ -14,7 +14,9 @@ def test_build_sine_sheet_hfield_dimensions():
     values = payload.elevation_str.split()
     assert len(values) == payload.nrow * payload.ncol
     assert payload.size[0] > WIPE_LENGTH / 2.0
-    assert payload.body_pos[0] == pytest.approx(SURFACE.x0 + WIPE_LENGTH / 2.0)
+    assert payload.body_pos[0] == pytest.approx(
+        SURFACE.x0 + SURFACE.direction * WIPE_LENGTH / 2.0
+    )
     assert payload.size[3] > 0.0
 
 
@@ -55,5 +57,5 @@ def test_surface_wipe_scene_template_renders(tmp_path):
     scene_path = spec.resolve_scene(manifest, cache_root=cache_root)
     content = scene_path.read_text(encoding="utf-8")
     assert "{{HFIELD_ELEVATION}}" not in content
-    assert "size=\"0.15 0.12" in content
+    assert "size=\"0.135 0.12" in content
     assert "elevation=\"" in content

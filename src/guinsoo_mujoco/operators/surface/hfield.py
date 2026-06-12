@@ -49,7 +49,7 @@ def build_sine_sheet_hfield(
         raise ValueError("ncol must be >= 2 and nrow must be >= 1")
 
     half_x = wipe_length / 2.0 + x_margin
-    body_x = surface.x0 + wipe_length / 2.0
+    body_x = surface.x0 + surface.direction * wipe_length / 2.0
     body_y = surface.y0
     x_local = np.linspace(-half_x, half_x, ncol)
     z_world = np.array(

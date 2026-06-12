@@ -6,28 +6,29 @@ import numpy as np
 
 from guinsoo_mujoco.demos.ur5e.surface_wipe.config import (
     ADMITTANCE,
-    APPROACH_DURATION,
-    APPROACH_IK_FALLBACK,
-    APPROACH_IK_TOLERANCE,
     CONTACT_STANDOFF,
+    CONTACT_SETTLE_QVEL,
+    CONTACT_SETTLE_TIME,
     DESCEND_SPEED,
     DESCEND_STANDOFF_TOL,
     EE_SITE,
     FORCE_SENSOR,
     IK_OPTIONS,
     MAX_CONTACT_FORCE,
+    FOLLOW_IK_DECIMATION,
+    FOLLOW_MAX_JOINT_STEP,
+    JOINT_TARGET_SMOOTHING,
     MAX_JOINT_STEP,
     MIN_DESCEND_TIME,
     MIN_NORMAL_OFFSET,
-    PREP_QPOS,
     PRE_CONTACT_OFFSET,
     RETRACT_DISTANCE,
     RETRACT_SPEED,
+    START_QPOS,
     SURFACE,
     TANGENTIAL_SPEED,
     TORQUE_SENSOR,
     WAVE_GEOM,
-    WIPE_IK_SEED,
     WIPE_LENGTH,
     TOOL_BODY_NAMES,
 )
@@ -40,7 +41,6 @@ from guinsoo_mujoco.operators.admittance import (
 from guinsoo_mujoco.operators.ik import IkOptions, solve_ik_nearest
 from guinsoo_mujoco.operators.path import (
     actuator_joint_target,
-    interpolate_joints,
     shortest_joint_delta,
     unwrap_joint_target,
 )
@@ -53,14 +53,12 @@ controller_logger = get_logger("controller")
 class SurfaceWipeController:
     runtime: MuJoCoRuntime
     name: str = "surface_wipe"
-    phase: Phase = Phase.APPROACH
+    phase: Phase = Phase.DESCEND
     path_s: float = 0.0
     descend_offset: float = 0.0
     descend_elapsed: float = 0.0
     retract_offset: float = 0.0
-    approach_alpha: float = 0.0
-    approach_q_start: np.ndarray | None = None
-    approach_q_goal: np.ndarray | None = None
+    approach_alpha: float = 1.0
     admittance_state: NormalAdmittanceState = field(default_factory=NormalAdmittanceState)
     status_message: str = "初始化"
     last_target: np.ndarray | None = None
@@ -68,37 +66,51 @@ class SurfaceWipeController:
     last_force_normal_raw: float = 0.0
     last_admittance_dn: float = 0.0
     last_tool_contact: bool = False
+    smoothed_q_target: np.ndarray | None = None
+    hold_q_target: np.ndarray | None = None
+    contact_settle_q_target: np.ndarray | None = None
+    contact_settle_elapsed: float = 0.0
+    follow_ik_cache: np.ndarray | None = None
+    follow_ik_step: int = 0
+    last_normal_offset: float = 0.0
 
     def reset(self, runtime: MuJoCoRuntime | None = None, config: dict | None = None) -> None:
         del config
         if runtime is not None:
             self.runtime = runtime
-        self.phase = Phase.APPROACH
+        self.phase = Phase.DESCEND
         self.path_s = 0.0
         self.descend_offset = PRE_CONTACT_OFFSET
         self.descend_elapsed = 0.0
         self.retract_offset = 0.0
-        self.approach_alpha = 0.0
-        self.approach_q_start = None
-        self.approach_q_goal = None
+        self.approach_alpha = 1.0
         self.admittance_state = ADMITTANCE.reset()
-        self.status_message = "重置：准备接近曲面"
+        self.status_message = "重置：路径起点待命，准备下降"
         self.last_target = None
         self.last_force_normal = 0.0
         self.last_force_normal_raw = 0.0
         self.last_admittance_dn = 0.0
         self.last_tool_contact = False
-        self.runtime.set_joint_positions(PREP_QPOS)
-        self.runtime.set_control(PREP_QPOS)
+        self.smoothed_q_target = None
+        self.hold_q_target = None
+        self.contact_settle_q_target = None
+        self.contact_settle_elapsed = 0.0
+        self.follow_ik_cache = None
+        self.follow_ik_step = 0
+        self.last_normal_offset = PRE_CONTACT_OFFSET
+        q_start = unwrap_joint_target(
+            self.runtime.read_joint_state()[0],
+            START_QPOS,
+        )
+        self.runtime.set_joint_positions(q_start)
+        self.runtime.set_control(q_start)
         self.runtime.forward()
-        self.approach_q_start = PREP_QPOS.copy()
+        self.last_target = q_start.copy()
         controller_logger.info("曲面擦拭控制器已重置")
 
     def step(self, runtime: MuJoCoRuntime, t: float, dt: float) -> dict:
         del t
-        if self.phase == Phase.APPROACH:
-            sample = self._step_approach(runtime, dt)
-        elif self.phase == Phase.DESCEND:
+        if self.phase == Phase.DESCEND:
             sample = self._step_descend(runtime, dt)
         elif self.phase == Phase.FOLLOW:
             sample = self._step_follow(runtime, dt)
@@ -118,96 +130,97 @@ class SurfaceWipeController:
         sample["approach_alpha"] = self.approach_alpha
         return sample
 
-    def _step_approach(self, runtime: MuJoCoRuntime, dt: float) -> dict:
-        if self.approach_q_goal is None:
-            target_pose = self._desired_pose(
-                s=0.0,
-                normal_offset=PRE_CONTACT_OFFSET,
-            )
-            q_goal = self._solve_pose(
-                runtime,
-                target_pose,
-                APPROACH_IK_TOLERANCE,
-                prefer_nearest=True,
-            )
-            if q_goal is None:
-                q_goal = self._solve_pose(
-                    runtime,
-                    target_pose,
-                    APPROACH_IK_FALLBACK,
-                    q_seed=WIPE_IK_SEED,
-                )
-            if q_goal is None:
-                self.status_message = "接近失败：IK 无解"
-                q_hold, _ = runtime.read_joint_state()
-                self._apply_joint_target(runtime, q_hold)
-                return self._sample(runtime, q_hold)
-            q_start = (
-                self.approach_q_start
-                if self.approach_q_start is not None
-                else runtime.read_joint_state()[0]
-            )
-            self.approach_q_goal = unwrap_joint_target(q_start, q_goal)
-
-        duration = max(APPROACH_DURATION, dt)
-        self.approach_alpha = min(1.0, self.approach_alpha + dt / duration)
-        q_start = (
-            self.approach_q_start
-            if self.approach_q_start is not None
-            else runtime.read_joint_state()[0]
-        )
-        q_target = interpolate_joints(q_start, self.approach_q_goal, self.approach_alpha)
-        self._apply_joint_target(runtime, q_target, max_step=MAX_JOINT_STEP)
-
-        if self.approach_alpha >= 1.0 - 1e-6:
-            self.phase = Phase.DESCEND
-            self.descend_offset = PRE_CONTACT_OFFSET
-            self.descend_elapsed = 0.0
-            self.status_message = "开始沿法向下降"
-            controller_logger.info("进入下降阶段")
-        else:
-            self.status_message = f"接近中：blend={self.approach_alpha:.2f}"
-        return self._sample(runtime, q_target)
-
     def _step_descend(self, runtime: MuJoCoRuntime, dt: float) -> dict:
         self.descend_elapsed += dt
         force_normal = self._read_normal_force(runtime, s=0.0)
         tool_contact = self._tool_contacts_wave(runtime)
-        self.descend_offset = max(
-            MIN_NORMAL_OFFSET,
-            self.descend_offset - DESCEND_SPEED * dt,
-        )
+        qpos, qvel = runtime.read_joint_state()
+        if self.contact_settle_q_target is None:
+            self.descend_offset = max(
+                MIN_NORMAL_OFFSET,
+                self.descend_offset - DESCEND_SPEED * dt,
+            )
         target_pose = self._desired_pose(
             s=0.0,
             normal_offset=self.descend_offset,
         )
-        q_target = self._solve_pose(
-            runtime,
-            target_pose,
-            IK_OPTIONS,
-            prefer_nearest=True,
-        )
-        if q_target is None:
-            self.status_message = "下降失败：IK 无解"
-            q_target = runtime.read_joint_state()[0]
-        else:
+        if self.contact_settle_q_target is not None:
+            q_target = self.contact_settle_q_target
             self._apply_joint_target(runtime, q_target, max_step=MAX_JOINT_STEP)
+        else:
+            q_target = self._solve_pose(
+                runtime,
+                target_pose,
+                IK_OPTIONS,
+                prefer_nearest=True,
+            )
+            if q_target is None:
+                self.status_message = "下降失败：IK 无解"
+                q_target = qpos
+            else:
+                self._apply_joint_target(runtime, q_target, max_step=MAX_JOINT_STEP)
 
         signed_standoff = self._signed_standoff(runtime, s=0.0)
         contact_ready = (
             tool_contact
             and signed_standoff <= CONTACT_STANDOFF + DESCEND_STANDOFF_TOL
         )
-        if self.descend_elapsed >= MIN_DESCEND_TIME and contact_ready:
+        settling = self.contact_settle_q_target is not None
+        if self.descend_elapsed >= MIN_DESCEND_TIME and (contact_ready or settling):
+            if self.contact_settle_q_target is None:
+                settle_pose = self._desired_pose(
+                    s=0.0,
+                    normal_offset=CONTACT_STANDOFF,
+                )
+                settle_target = self._solve_pose(
+                    runtime,
+                    settle_pose,
+                    IK_OPTIONS,
+                    prefer_nearest=True,
+                )
+                if settle_target is None:
+                    settle_target = q_target
+                self.contact_settle_q_target = unwrap_joint_target(qpos, settle_target)
+                self.contact_settle_elapsed = 0.0
+            q_target = self.contact_settle_q_target
+            self._apply_joint_target(runtime, q_target, max_step=MAX_JOINT_STEP)
+            self.contact_settle_elapsed += dt
+            qvel_max = float(np.max(np.abs(qvel)))
+            settled = (
+                self.contact_settle_elapsed >= CONTACT_SETTLE_TIME
+                and qvel_max <= CONTACT_SETTLE_QVEL
+            )
+        elif not settling:
+            self.contact_settle_q_target = None
+            self.contact_settle_elapsed = 0.0
+            qvel_max = float(np.max(np.abs(qvel)))
+            settled = False
+        else:
+            qvel_max = float(np.max(np.abs(qvel)))
+            settled = False
+
+        if settled:
             self.phase = Phase.FOLLOW
             self.path_s = 0.0
-            self.admittance_state = ADMITTANCE.reset()
+            self.smoothed_q_target = None
+            self.contact_settle_q_target = None
+            self.contact_settle_elapsed = 0.0
+            self.follow_ik_cache = None
+            self.follow_ik_step = 0
+            self.admittance_state = ADMITTANCE.reset(initial_force=ADMITTANCE.force_des)
             self.status_message = "接触建立，开始擦拭"
             controller_logger.info("进入跟随阶段：waypoint=s=0")
+        elif self.contact_settle_q_target is not None:
+            self.status_message = (
+                "接触稳定中："
+                f"hold={self.contact_settle_elapsed:.2f}/{CONTACT_SETTLE_TIME:.2f}s "
+                f"qvel={qvel_max:.3f}rad/s"
+            )
         else:
             self.status_message = (
                 f"下降中：offset={self.descend_offset:.3f} Fn={force_normal:.1f}N"
             )
+        self.last_normal_offset = self.descend_offset
         return self._sample(runtime, q_target)
 
     def _step_follow(self, runtime: MuJoCoRuntime, dt: float) -> dict:
@@ -223,14 +236,29 @@ class SurfaceWipeController:
             s=self.path_s,
             normal_offset=normal_offset,
         )
-        q_target = self._solve_pose(
-            runtime,
-            target_pose,
-            IK_OPTIONS,
-            prefer_nearest=True,
+        self.follow_ik_step += 1
+        refresh_ik = (
+            self.follow_ik_cache is None
+            or self.follow_ik_step % max(FOLLOW_IK_DECIMATION, 1) == 0
         )
+        q_target = self.follow_ik_cache
+        if refresh_ik:
+            solved = self._solve_pose(
+                runtime,
+                target_pose,
+                IK_OPTIONS,
+                prefer_nearest=True,
+            )
+            if solved is not None:
+                self.follow_ik_cache = solved
+                q_target = solved
         if q_target is not None:
-            self._apply_joint_target(runtime, q_target, max_step=MAX_JOINT_STEP)
+            self._apply_joint_target(
+                runtime,
+                q_target,
+                max_step=FOLLOW_MAX_JOINT_STEP,
+                smooth=True,
+            )
             self.path_s = min(WIPE_LENGTH, self.path_s + TANGENTIAL_SPEED * dt)
         else:
             self.status_message = "跟随中：IK 失败，暂停切向推进"
@@ -246,6 +274,7 @@ class SurfaceWipeController:
                 f"擦拭中：s={self.path_s:.3f}/{WIPE_LENGTH:.3f} "
                 f"Fn={force_normal:.1f}/{ADMITTANCE.force_des:.1f}N"
             )
+        self.last_normal_offset = normal_offset
         return self._sample(runtime, q_target)
 
     def _step_retract(self, runtime: MuJoCoRuntime, dt: float) -> dict:
@@ -268,15 +297,35 @@ class SurfaceWipeController:
         else:
             self._apply_joint_target(runtime, q_target, max_step=MAX_JOINT_STEP)
         if self.retract_offset >= RETRACT_DISTANCE - 1e-6:
-            self.phase = Phase.DONE
-            self.status_message = "任务完成"
-            controller_logger.info("擦拭任务完成")
-        return self._sample(runtime, q_target)
+            self._enter_done_hold(runtime, q_target)
+        sample_target = (
+            self.hold_q_target if self.hold_q_target is not None else q_target
+        )
+        self.last_normal_offset = CONTACT_STANDOFF + self.retract_offset
+        return self._sample(runtime, sample_target)
+
+    def _enter_done_hold(self, runtime: MuJoCoRuntime, q_target: np.ndarray) -> None:
+        del q_target
+        qpos, _ = runtime.read_joint_state()
+        self.hold_q_target = qpos.copy()
+        low, high = runtime.joint_limits()
+        ctrl = actuator_joint_target(qpos, self.hold_q_target, low, high)
+        runtime.set_control(ctrl)
+        self.last_target = self.hold_q_target.copy()
+        self.smoothed_q_target = None
+        self.phase = Phase.DONE
+        self.status_message = "任务完成，保持静止"
+        controller_logger.info("擦拭任务完成，锁定关节目标")
 
     def _hold_current(self, runtime: MuJoCoRuntime) -> dict:
+        if self.hold_q_target is None:
+            qpos, _ = runtime.read_joint_state()
+            self.hold_q_target = qpos.copy()
         qpos, _ = runtime.read_joint_state()
-        self._apply_joint_target(runtime, qpos)
-        return self._sample(runtime, qpos)
+        low, high = runtime.joint_limits()
+        ctrl = actuator_joint_target(qpos, self.hold_q_target, low, high)
+        runtime.set_control(ctrl)
+        return self._sample(runtime, self.hold_q_target)
 
     def _desired_pose(
         self,
@@ -346,6 +395,8 @@ class SurfaceWipeController:
         pos, rot = target_pose
         q_current, _ = runtime.read_joint_state()
         del prefer_nearest
+        q_saved = runtime.data.qpos.copy()
+        qvel_saved = runtime.data.qvel.copy()
         q = solve_ik_nearest(
             runtime,
             pos,
@@ -354,9 +405,11 @@ class SurfaceWipeController:
             options,
         )
         if q is None:
+            runtime.set_joint_positions(q_saved)
+            runtime.data.qvel[: qvel_saved.size] = qvel_saved
+            runtime.forward()
             return None
 
-        q_saved = runtime.data.qpos.copy()
         runtime.forward(q)
         achieved_pos, achieved_rot = runtime.site_pose(EE_SITE)
         pos_err = float(np.linalg.norm(achieved_pos - pos))
@@ -365,6 +418,7 @@ class SurfaceWipeController:
             np.arccos(np.clip(float(np.dot(achieved_rot[:, 2], n_hat)), -1.0, 1.0))
         )
         runtime.set_joint_positions(q_saved)
+        runtime.data.qvel[: qvel_saved.size] = qvel_saved
         runtime.forward()
 
         if pos_err > options.position_tol * 2.5:
@@ -379,6 +433,7 @@ class SurfaceWipeController:
         q_target: np.ndarray,
         *,
         max_step: float | None = None,
+        smooth: bool = False,
     ) -> None:
         qpos, _ = runtime.read_joint_state()
         q_unwrapped = unwrap_joint_target(qpos, q_target)
@@ -386,6 +441,15 @@ class SurfaceWipeController:
             delta = shortest_joint_delta(qpos, q_unwrapped)
             delta = np.clip(delta, -max_step, max_step)
             q_unwrapped = qpos + delta
+        if smooth:
+            alpha = float(np.clip(JOINT_TARGET_SMOOTHING, 0.0, 1.0))
+            if self.smoothed_q_target is None:
+                self.smoothed_q_target = q_unwrapped.copy()
+            else:
+                self.smoothed_q_target = (
+                    alpha * q_unwrapped + (1.0 - alpha) * self.smoothed_q_target
+                )
+            q_unwrapped = unwrap_joint_target(qpos, self.smoothed_q_target)
         low, high = runtime.joint_limits()
         ctrl = actuator_joint_target(qpos, q_unwrapped, low, high)
         runtime.set_control(ctrl)
@@ -397,24 +461,53 @@ class SurfaceWipeController:
         n_hat = SURFACE.normal(s)
         return float(np.dot(pos - p_ref, n_hat))
 
+    def _cartesian_errors(
+        self,
+        pos: np.ndarray,
+        *,
+        s: float,
+        normal_offset: float,
+    ) -> dict[str, float]:
+        p_ref = SURFACE.position(s)
+        n_hat = SURFACE.normal(s)
+        p_des = p_ref + normal_offset * n_hat
+        delta = pos - p_des
+        offset_vec = pos - p_ref
+        signed_standoff = float(np.dot(offset_vec, n_hat))
+        tangential_vec = offset_vec - signed_standoff * n_hat
+        return {
+            "ee_pose_error": float(np.linalg.norm(delta)),
+            "ee_normal_error": signed_standoff - normal_offset,
+            "ee_tangential_error": float(np.linalg.norm(tangential_vec)),
+            "ee_surface_distance": float(np.linalg.norm(offset_vec)),
+            "ee_signed_standoff": signed_standoff,
+        }
+
     def _sample(self, runtime: MuJoCoRuntime, q_target: np.ndarray) -> dict:
         try:
             wrench = runtime.read_site_wrench(FORCE_SENSOR, TORQUE_SENSOR)
         except ValueError:
             wrench = np.zeros(6, dtype=float)
         pos, rot = runtime.site_pose(EE_SITE)
-        p_ref = SURFACE.position(self.path_s)
-        n_hat = SURFACE.normal(self.path_s)
         rot_des = SURFACE.orientation(self.path_s)
         orient_err = float(
             np.arccos(np.clip(float(np.dot(rot[:, 2], rot_des[:, 2])), -1.0, 1.0))
         )
-        signed_standoff = self._signed_standoff(runtime, s=self.path_s)
+        cartesian = self._cartesian_errors(
+            pos,
+            s=self.path_s,
+            normal_offset=self.last_normal_offset,
+        )
+        logged_target = self.last_target if self.last_target is not None else q_target
         return {
-            "target": q_target.copy(),
+            "target": logged_target.copy(),
             "control": runtime.data.ctrl.copy(),
             "wrench_tool": wrench.astype(float),
-            "ee_pos_error": float(np.linalg.norm(pos - p_ref)),
+            "ee_pos_error": cartesian["ee_pose_error"],
+            "ee_pose_error": cartesian["ee_pose_error"],
+            "ee_normal_error": cartesian["ee_normal_error"],
+            "ee_tangential_error": cartesian["ee_tangential_error"],
+            "ee_surface_distance": cartesian["ee_surface_distance"],
             "ee_orient_error": orient_err,
-            "ee_signed_standoff": signed_standoff,
+            "ee_signed_standoff": cartesian["ee_signed_standoff"],
         }

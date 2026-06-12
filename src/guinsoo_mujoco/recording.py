@@ -10,6 +10,14 @@ from guinsoo_mujoco.assets import AssetManifest, repo_root
 from guinsoo_mujoco.data import RunMetadata, RunRecorder, default_runs_dir
 from guinsoo_mujoco.runtime import MuJoCoRuntime
 
+_PHASE_CODE = {
+    "approach": 0.0,
+    "descend": 1.0,
+    "follow": 2.0,
+    "retract": 3.0,
+    "done": 4.0,
+}
+
 
 def create_run_recorder(
     session: SimSession,
@@ -55,7 +63,13 @@ def append_step_sample(recorder: RunRecorder, runtime: MuJoCoRuntime, sample: di
         "force_des",
         "admittance_dn",
         "path_s",
+        "phase",
+        "status",
         "ee_pos_error",
+        "ee_pose_error",
+        "ee_normal_error",
+        "ee_tangential_error",
+        "ee_surface_distance",
         "ee_orient_error",
         "ee_signed_standoff",
         "tool_contact",
@@ -63,6 +77,14 @@ def append_step_sample(recorder: RunRecorder, runtime: MuJoCoRuntime, sample: di
         if key not in sample:
             continue
         value = sample[key]
+        if key == "phase":
+            sensors["phase_code"] = np.array(
+                _PHASE_CODE.get(str(value), -1.0),
+                dtype=float,
+            )
+            continue
+        if key == "status":
+            continue
         if isinstance(value, (int, float, np.floating)):
             sensors[key] = np.array(float(value), dtype=float)
         elif np.asarray(value).ndim == 0:

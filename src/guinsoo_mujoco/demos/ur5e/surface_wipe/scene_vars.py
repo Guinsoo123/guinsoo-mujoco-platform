@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from guinsoo_mujoco.demos.ur5e.surface_wipe.config import SURFACE, WIPE_LENGTH
+from guinsoo_mujoco.demos.ur5e.surface_wipe.config import START_QPOS, SURFACE, WIPE_LENGTH
 from guinsoo_mujoco.operators.surface import build_sine_sheet_hfield
 
 
@@ -9,7 +9,9 @@ def surface_wipe_scene_template_vars() -> dict[str, str]:
     start = SURFACE.position(0.0)
     end = SURFACE.position(WIPE_LENGTH)
     stand_z = payload.body_pos[2] - 0.0425
+    start_qpos = " ".join(f"{value:.4f}" for value in START_QPOS)
     return {
+        "START_QPOS": start_qpos,
         "HFIELD_ELEVATION": payload.elevation_str,
         "HFIELD_SIZE": payload.size_str,
         "HFIELD_NROW": str(payload.nrow),

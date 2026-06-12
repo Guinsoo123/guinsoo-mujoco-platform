@@ -14,13 +14,21 @@ def _normalize(vec: np.ndarray) -> np.ndarray:
 
 @dataclass(frozen=True)
 class SineSheetSurface:
-    """Parametric sine wave sheet z(x) = z0 + amp * sin(2*pi*x / wavelength)."""
+    """Parametric sine wave sheet z(x) = z0 + amp * sin(2*pi*x / wavelength).
+
+    Path parameter ``s`` advances along ``direction``: world x = x0 + direction * s.
+    Use ``direction=-1`` to wipe back toward the robot base for a more natural reach.
+    """
 
     x0: float
     y0: float
     z0: float
     amplitude: float
     wavelength: float
+    direction: float = 1.0
+
+    def _x_at(self, s: float) -> float:
+        return float(self.x0 + self.direction * s)
 
     def height(self, x: float) -> float:
         return float(
@@ -35,18 +43,20 @@ class SineSheetSurface:
         )
 
     def position(self, s: float) -> np.ndarray:
-        x = self.x0 + s
+        x = self._x_at(s)
         return np.array([x, self.y0, self.height(x)], dtype=float)
 
     def normal(self, s: float) -> np.ndarray:
-        x = self.x0 + s
+        x = self._x_at(s)
         dz_dx = self.slope(x)
         return _normalize(np.array([-dz_dx, 0.0, 1.0], dtype=float))
 
     def tangent(self, s: float) -> np.ndarray:
-        x = self.x0 + s
+        x = self._x_at(s)
         dz_dx = self.slope(x)
-        return _normalize(np.array([1.0, 0.0, dz_dx], dtype=float))
+        return _normalize(
+            np.array([self.direction, 0.0, self.direction * dz_dx], dtype=float)
+        )
 
     def orientation(self, s: float) -> np.ndarray:
         """Rotation matrix for attachment_site: +Z points into the surface (-n)."""

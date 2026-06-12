@@ -38,3 +38,56 @@ def test_normal_admittance_respects_output_limit():
     for _ in range(500):
         state, d_n = admittance.step(state, force_normal=100.0, dt=0.002)
     assert abs(d_n) <= 0.01 + 1e-9
+
+
+def test_normal_admittance_zeroes_velocity_when_pushing_against_limit():
+    admittance = NormalAdmittance(
+        mass=0.5,
+        damping=1.0,
+        stiffness=0.0,
+        force_des=0.0,
+        d_n_limit=0.005,
+        force_lpf_alpha=1.0,
+    )
+    state = admittance.reset()
+
+    for _ in range(50):
+        state, d_n = admittance.step(state, force_normal=100.0, dt=0.01)
+
+    assert d_n == 0.005
+    assert abs(state.d_n_dot) < 1e-12
+
+
+def test_normal_admittance_initializes_filter_from_first_force_sample():
+    admittance = NormalAdmittance(
+        mass=1.0,
+        damping=20.0,
+        stiffness=0.0,
+        force_des=10.0,
+        d_n_limit=0.05,
+        force_lpf_alpha=0.05,
+    )
+    state = admittance.reset()
+
+    state, d_n = admittance.step(state, force_normal=10.0, dt=0.002)
+
+    assert state.filtered_force == 10.0
+    assert d_n == 0.0
+
+
+def test_normal_admittance_respects_rate_limit():
+    admittance = NormalAdmittance(
+        mass=0.5,
+        damping=1.0,
+        stiffness=0.0,
+        force_des=0.0,
+        d_n_limit=0.05,
+        force_lpf_alpha=1.0,
+        d_n_rate_limit=0.01,
+    )
+    state = admittance.reset()
+
+    state, d_n = admittance.step(state, force_normal=100.0, dt=0.1)
+
+    assert d_n == 0.001
+    assert state.d_n_dot == 0.01

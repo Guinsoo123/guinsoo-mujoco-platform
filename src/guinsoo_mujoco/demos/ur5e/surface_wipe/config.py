@@ -13,22 +13,20 @@ SAFE_HOME_QPOS = np.array(
     dtype=float,
 )
 
-# Collision-free intermediate posture between safe home and wipe workspace.
-PREP_QPOS = np.array(
-    [-1.0082, -1.4619, 2.9043, -1.7507, -1.7056, -0.6057],
+# Wipe-start posture: approach pose above path origin (PRE_CONTACT_OFFSET along +n).
+START_QPOS = np.array(
+    [6.0678, 3.8673, -0.5038, 1.2819, -1.5561, -1.7857],
     dtype=float,
 )
 
-# Wipe-workspace IK fallback (reachable top-down poses; arm links excluded from IK collision).
-WIPE_IK_SEED = np.array(
-    [5.8375, 4.9302, -2.0453, 4.3525, -1.8403, -1.2114],
-    dtype=float,
-)
+# IK seed near the wipe workspace (arm links excluded from IK collision).
+WIPE_IK_SEED = START_QPOS.copy()
 
-APPROACH_REACH_TOL = 0.02
-APPROACH_DURATION = 3.0
 MIN_NORMAL_OFFSET = 0.003
 MAX_JOINT_STEP = 0.025
+FOLLOW_MAX_JOINT_STEP = 0.006
+JOINT_TARGET_SMOOTHING = 0.07
+FOLLOW_IK_DECIMATION = 8
 
 EE_SITE = "attachment_site"
 WAVE_GEOM = "wave"
@@ -58,22 +56,25 @@ IGNORE_BODY_NAMES: frozenset[str] = frozenset(
     {"world", "wipe_start", "wipe_end", "wave_stand", "wave_surface"}
 )
 
-# 沿 Y 负侧擦拭，曲面降低以避免初始姿态穿模。
+# 沿机械臂 -Y 可行域布置缓波曲面；从远端向基座方向擦拭（direction=-1）。
 SURFACE = SineSheetSurface(
-    x0=0.30,
-    y0=-0.28,
-    z0=0.36,
-    amplitude=0.015,
-    wavelength=0.12,
+    x0=0.55,
+    y0=-0.26,
+    z0=0.40,
+    amplitude=0.004,
+    wavelength=0.36,
+    direction=-1.0,
 )
 
-WIPE_LENGTH = 0.25
-TANGENTIAL_SPEED = 0.025
+WIPE_LENGTH = 0.22
+TANGENTIAL_SPEED = 0.005
 
-PRE_CONTACT_OFFSET = 0.04
+PRE_CONTACT_OFFSET = 0.035
 CONTACT_STANDOFF = 0.005
 CONTACT_FORCE_THRESHOLD = 2.0
 MAX_CONTACT_FORCE = 80.0
+CONTACT_SETTLE_TIME = 0.45
+CONTACT_SETTLE_QVEL = 0.075
 DESCEND_SPEED = 0.02
 RETRACT_SPEED = 0.02
 RETRACT_DISTANCE = 0.05
@@ -81,12 +82,13 @@ MIN_DESCEND_TIME = 0.2
 DESCEND_STANDOFF_TOL = 0.001
 
 ADMITTANCE = NormalAdmittance(
-    mass=2.0,
-    damping=200.0,
-    stiffness=0.0,
-    force_des=8.0,
-    d_n_limit=0.025,
-    force_lpf_alpha=0.08,
+    mass=3.0,
+    damping=500.0,
+    stiffness=80.0,
+    force_des=2.0,
+    d_n_limit=0.012,
+    force_lpf_alpha=0.05,
+    d_n_rate_limit=0.0015,
 )
 
 COLLISION_MODEL = CollisionModel(
@@ -103,27 +105,6 @@ IK_OPTIONS = IkOptions(
     max_iterations=120,
     position_tol=0.004,
     orientation_tol=0.1,
-    damping=0.06,
-    collision_model=None,
-    position_only=False,
-)
-
-APPROACH_IK_TOLERANCE = IkOptions(
-    site_name=EE_SITE,
-    max_iterations=120,
-    position_tol=0.005,
-    orientation_tol=0.12,
-    damping=0.06,
-    collision_model=COLLISION_MODEL,
-    position_only=False,
-)
-
-# Top-down wipe pose is far from PREP_QPOS in joint space; seed from wipe workspace.
-APPROACH_IK_FALLBACK = IkOptions(
-    site_name=EE_SITE,
-    max_iterations=120,
-    position_tol=0.005,
-    orientation_tol=0.12,
     damping=0.06,
     collision_model=None,
     position_only=False,
