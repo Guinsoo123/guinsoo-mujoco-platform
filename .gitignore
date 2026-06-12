@@ -14,3 +14,6 @@ dist/
 .guinsoo_cache/
 data/runs/
 data/cache/
+
+# 原始屏幕录制体积较大，README 使用压缩后的 MP4/GIF 展示。
+docs/media/guinsoo-sim-studio-demo.mov

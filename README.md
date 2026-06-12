@@ -1,3 +1,16 @@
+<p align="center">
+  <a href="docs/media/guinsoo-sim-studio-demo.mp4">
+    <img src="docs/media/guinsoo-sim-studio-demo.gif" alt="Guinsoo Sim Studio demo: MuJoCo robot simulation, controller curves, run logs, and episode data analysis" width="900">
+  </a>
+</p>
+
+<p align="center">
+  <strong>Guinsoo Sim Studio 演示：</strong>选择机器人 Demo、运行 MuJoCo 仿真、观察控制曲线与日志，并记录 episode 数据用于后续分析。<br>
+  <a href="docs/media/guinsoo-sim-studio-demo.mp4">播放完整 MP4 演示</a>
+</p>
+
+<video src="docs/media/guinsoo-sim-studio-demo.mp4" controls width="100%"></video>
+
 # Guinsoo MuJoCo Platform
 
 Guinsoo MuJoCo Platform 是一款面向 Mac 的 MuJoCo 运动控制算法验证平台。第一版目标是提供一个原生 Qt 桌面工具：选择机器人示例，运行 MuJoCo 仿真，在内嵌 OpenGL 视图中观察运动，查看控制曲线，采集 episode 数据，并在本地 notebook 中分析数据。
